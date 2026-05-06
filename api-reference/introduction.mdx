@@ -1,6 +1,6 @@
 ---
 title: "Visão geral"
-description: "OpenAPI da Stric Platform — 29 operações com playground Mintlify nesta mesma documentação."
+description: "OpenAPI da Stric Platform — 25 operações com playground Mintlify nesta mesma documentação."
 ---
 
 Esta página resume o que você vê no **painel lateral** da aba **Referência da API**: a spec OpenAPI vira grupos de métodos com playground Mintlify (**Try it**) em cada operação.
@@ -39,32 +39,32 @@ Na referência OpenAPI, os grupos seguem o fluxo natural de integração:
 
 ### Conta & saldo
 
-| Categoria      | Endpoints                                |
-| -------------- | ---------------------------------------- |
-| **Account**    | Atalhos para a conta da API key          |
-| **Movements**  | Saldo, extrato e consulta de movimentos  |
+| Categoria      | Endpoints |
+| -------------- | --------- |
+| **Account**    | Conta da API key (`GET /v1/account`), chaves Pix, limites de pagamento (`GET /v1/account/limits`), tarifas por id (`GET /v1/pix-accounts/{id}/fees`) e política de rate limit (`GET /v1/pix-accounts/{id}/rate-limit`) |
+| **Movements**  | Saldo, extrato e consulta de movimentos |
 
 ### Receber Pix
 
 | Categoria   | Endpoints                                          |
 | ----------- | -------------------------------------------------- |
 | **Charges** | Cobranças Pix (criar, listar, consultar, refresh)  |
-| **Inbox**   | Pix recebidos                                      |
+
+Pix creditados **sem cobrança** (só pela sua chave Pix) não têm grupo próprio nesta referência: use o webhook **`pix.in.received`** e o extrato **`GET /v1/statement`** / consultas em **Movements** para auditar — fluxo em [Receber um Pix](/guides/receive-pix).
 
 ### Enviar Pix
 
 | Categoria   | Endpoints                                  |
 | ----------- | ------------------------------------------ |
-| **Consulta de chave Pix** | Consultar titular e dados antes do payout (`/v1/dict/lookup`) |
+| **Consulta de chave Pix** | Consultar titular e dados antes da transferência (`/v1/dict/lookup`) |
 | **QR Code** | Decodificação de BR Code                   |
-| **Payouts** | Pagamentos enviados (via chave ou QR Code) |
+| **Transferências Pix** | Envio por chave ou QR Code (`/v1/payouts` …) |
 
 ### Administração
 
-| Categoria        | Endpoints                               |
-| ---------------- | --------------------------------------- |
-| **Pix accounts** | Tarifas, limites e rate limit por conta |
-| **Webhooks**     | Cadastro de URLs HTTPS e eventos Pix    |
+| Categoria    | Endpoints                            |
+| ------------ | ------------------------------------ |
+| **Webhooks** | Cadastro de URLs HTTPS e eventos Pix |
 
 ## Headers especiais
 

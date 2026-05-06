@@ -71,7 +71,7 @@ Resposta esperada (valores em centavos como string):
 ## 3. Consulte o titular da chave Pix
 
 Antes de enviar um Pix, é comum usar `POST /v1/dict/lookup` pra confirmar
-o titular e obter um `dictLookupId` opcional para o próximo payout. **`pixKeyType`** deve ser uma destas strings: **`CPF`**, **`CNPJ`**, **`EMAIL`**, **`PHONE`**, **`EVP`** — alinhado ao campo `pixKey`.
+o titular e obter um `dictLookupId` opcional para a próxima transferência Pix. **`pixKeyType`** deve ser uma destas strings: **`CPF`**, **`CNPJ`**, **`EMAIL`**, **`PHONE`**, **`EVP`** — alinhado ao campo `pixKey`.
 
 <CodeGroup>
 

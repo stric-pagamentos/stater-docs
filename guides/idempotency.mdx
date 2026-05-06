@@ -36,7 +36,7 @@ Content-Type: application/json
     detecta a duplicata e devolve o resultado original sem efeitos colaterais.
   </Tab>
   <Tab title="Conflito de body">
-    Você usou a mesma key para dois payouts diferentes. Resposta:
+    Você usou a mesma key para duas transferências diferentes. Resposta:
     `409 IDEMPOTENCY_CONFLICT`. Gere uma nova key.
   </Tab>
 </Tabs>
@@ -58,7 +58,7 @@ Content-Type: application/json
     use-o como base. Útil quando o seu sistema é a fonte de verdade:
 
     ```
-    Idempotency-Key: payout-pedido_12345-v1
+    Idempotency-Key: transferencia-pedido_12345-v1
     ```
 
     Vantagem: você sabe exatamente qual key usar ao retentar, mesmo após reinício.

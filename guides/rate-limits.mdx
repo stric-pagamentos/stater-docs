@@ -8,7 +8,7 @@ recebe `429 RATE_LIMIT_EXCEEDED` com o header `Retry-After`.
 
 ## Como descobrir seus limites
 
-Cada conta tem um multiplicador de rate limit. Consulte:
+Use **`GET /v1/pix-accounts/{id}/rate-limit`** (referência **Rate limit**): a resposta traz o fator aplicado à conta (`multiplier`) e os limites efetivos por rota (`effective`).
 
 ```bash
 curl "$STRIC_BASE_URL/v1/pix-accounts/{id}/rate-limit" \

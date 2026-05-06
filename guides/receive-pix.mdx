@@ -3,12 +3,11 @@ title: "Receber um Pix"
 description: "Crie cobranças com QR Code e concilie pagamentos recebidos"
 ---
 
-Receber um Pix pela Stric envolve dois caminhos:
+Receber um Pix pela Stric costuma seguir um destes cenários:
 
-- **Cobrança ativa** (com QR Code): você cria uma cobrança, exibe o QR ao
-  pagador, e recebe um webhook quando o Pix é liquidado.
-- **Recebimento direto** (chave Pix da conta): qualquer Pix enviado pra sua
-  chave aparece no `Inbox` — útil para depósitos sem cobrança prévia.
+- **Cobrança com QR Code**: você cria uma cobrança, exibe o QR ao pagador e
+  concilia quando ela for paga (`pix.charge.paid`).
+- **Pix recebido pela chave da conta** (sem cobrança prévia): não há endpoint REST para “caixa de entrada” de Pix nesta API — use o webhook **`pix.in.received`** como fonte principal e o **extrato / movimentos** para conferência.
 
 ## Caminho A — cobrança com QR Code
 
@@ -63,32 +62,28 @@ curl "$STRIC_BASE_URL/v1/charges/$CHARGE_ID" \
   -H "Authorization: Bearer $STRIC_API_KEY"
 ```
 
-## Caminho B — recebimento direto pela chave Pix
+## Caminho B — Pix recebido pela chave (sem cobrança prévia)
 
-Se alguém te paga sem você ter criado uma cobrança, consulte o **`Inbox`**
-pelo **`GET /v1/inbox`**. Para notificação push do mesmo cenário na API da
-Stric use o webhook **`pix.in.received`** ([Webhooks](/guides/webhooks)).
+Quando alguém envia Pix direto para uma **chave Pix cadastrada na sua conta**
+sem você ter criado cobrança antes:
 
-```bash
-# Lista Pix recebidos
-curl "$STRIC_BASE_URL/v1/inbox?limit=50" \
-  -H "Authorization: Bearer $STRIC_API_KEY"
-
-# Detalhe pelo endToEndId
-curl "$STRIC_BASE_URL/v1/inbox/E12345678202601061200ABC" \
-  -H "Authorization: Bearer $STRIC_API_KEY"
-```
+1. **Notificação**: cadastre um webhook e assine **`pix.in.received`** — o body
+   traz valor, `endToEndId`, pagador, etc. Veja exemplos em [Webhooks](/guides/webhooks).
+2. **Auditoria / backup**: use **`GET /v1/statement`** (lista paginada de movimentos)
+   e **`GET /v1/movements/{id}`** / **`GET /v1/movements/{id}/full`** quando você já
+   souber o id do movimento. Consulte a referência **Movements** no OpenAPI para filtros
+   (`from`, `to`, `type`, `source`, etc.).
 
 <Note>
-  O `endToEndId` é o identificador único do Pix definido pelo BCB.
-  Sempre use ele para conciliação, não datas ou valores.
+  O **`endToEndId`** (presente no webhook `pix.in.received`) é o identificador único
+  do Pix no arranjo — priorize ele na conciliação com o seu ledger.
 </Note>
 
 ## Boas práticas de conciliação
 
 <AccordionGroup>
   <Accordion title="Use webhooks como fonte de verdade" icon="bolt">
-    Webhooks são entregues em segundos após o evento. Polling é o backup,
+    Webhooks são entregues em segundos após o evento. Polling no extrato é backup,
     não o fluxo principal.
   </Accordion>
   <Accordion title="Persista os eventos antes de processar" icon="database">
@@ -99,8 +94,8 @@ curl "$STRIC_BASE_URL/v1/inbox/E12345678202601061200ABC" \
     O webhook pode chegar mais de uma vez. Use o `eventId` ou `endToEndId`
     pra deduplicar no seu lado.
   </Accordion>
-  <Accordion title="Reconcilie diariamente" icon="calendar">
-    Mesmo com webhooks confiáveis, rode uma reconciliação diária listando
-    `Inbox` + `Charges` e batendo com seu banco. Detecta gaps cedo.
+  <Accordion title="Reconcilie periodicamente" icon="calendar">
+    Mesmo com webhooks confiáveis, rode reconciliação rotineira contra **`GET /v1/charges`**
+    (cobranças) e **`GET /v1/statement`** / movimentos (Pix sem cobrança) batendo com seu banco.
   </Accordion>
 </AccordionGroup>

@@ -1,6 +1,6 @@
 ---
 title: "Enviar um Pix"
-description: "Fluxo completo: consulta do titular pela chave Pix, criação do payout e confirmação"
+description: "Fluxo completo: consulta do titular pela chave Pix, criação da transferência Pix e confirmação"
 ---
 
 Enviar um Pix pela Stric envolve geralmente três passos:
@@ -9,17 +9,17 @@ Enviar um Pix pela Stric envolve geralmente três passos:
   <Step title="Consultar a chave Pix (opcional mas recomendado)">
     Confirma o titular e devolve um `dictLookupId` para você vincular ao pagamento.
   </Step>
-  <Step title="Criar o payout">
+  <Step title="Iniciar a transferência Pix">
     Envie **`pixKey`**, **`pixKeyType`** e **`amountCents`**; opcionalmente o `dictLookupId` do passo anterior.
   </Step>
   <Step title="Confirmar a liquidação">
-    Por webhook (recomendado) ou consultando o payout.
+    Por webhook (recomendado) ou consultando o recurso da transferência (`GET /v1/payouts/{id}`).
   </Step>
 </Steps>
 
 ## Passo 1 — Consulta do titular (`POST /v1/dict/lookup`)
 
-Use os mesmos valores de chave e tipo que você vai mandar no payout. O corpo aceita:
+Use os mesmos valores de chave e tipo que você vai mandar na transferência. O corpo aceita:
 
 | Campo           | Tipo   | Descrição |
 | --------------- | ------ | --------- |
@@ -59,14 +59,14 @@ Resposta:
   pagamento. É um requisito regulatório de Pix e protege contra fraude.
 </Tip>
 
-## Passo 2 — Criar o payout
+## Passo 2 — Criar a transferência Pix
 
 O **`POST /v1/payouts`** exige **`pixKey`**, **`pixKeyType`** e **`amountCents`** (valor em centavos, conforme [formato monetário](/guides/money-format)). Opcionalmente envie **`dictLookupId`** com o `id` retornado na consulta do passo anterior, para correlacionar com a conferência do titular.
 
 ```bash
 curl -X POST "$STRIC_BASE_URL/v1/payouts" \
   -H "Authorization: Bearer $STRIC_API_KEY" \
-  -H "Idempotency-Key: payout-pedido-12345" \
+  -H "Idempotency-Key: transferencia-pedido-12345" \
   -H "Content-Type: application/json" \
   -d '{
     "pixKey": "11999999999",
@@ -86,10 +86,10 @@ A liquidação é assíncrona.
 
 ### Opção A: webhook (recomendado)
 
-Configure um endpoint que recebe eventos de payout. Você é notificado
+Configure um endpoint que recebe os eventos **`pix.payout.*`** (ciclo da transferência Pix enviada). Você é notificado
 assim que o status muda. Veja [Webhooks](/guides/webhooks).
 
-### Opção B: polling no payout
+### Opção B: polling na transferência
 
 ```bash
 curl "$STRIC_BASE_URL/v1/payouts/$PAYOUT_ID" \
@@ -109,7 +109,7 @@ Se em vez de chave Pix você tem um BR Code (string do QR), use o fluxo:
   <Step title="Decodifique o BR Code">
     `POST /v1/qr-code/decode` retorna valor, beneficiário e identificadores.
   </Step>
-  <Step title="Crie o payout via QR Code">
+  <Step title="Inicie a transferência por QR Code">
     `POST /v1/payouts/qr-code` com o resultado da decodificação.
   </Step>
 </Steps>
@@ -121,7 +121,7 @@ Se em vez de chave Pix você tem um BR Code (string do QR), use o fluxo:
 | `DICT_KEY_NOT_FOUND` (404)             | Chave não existe no diretório Pix — peça ao usuário pra verificar |
 | `INSUFFICIENT_BALANCE` (422)           | Bloqueie a operação e avise o usuário                |
 | `LIMIT_EXCEEDED` (422)                 | Limite diário/mensal — guie o usuário a aumentá-lo   |
-| Timeout na criação do payout           | Reenvie com a mesma `Idempotency-Key` — sem duplicar |
+| Timeout ao criar a transferência       | Reenvie com a mesma `Idempotency-Key` — sem duplicar |
 
 ## Reconciliação
 

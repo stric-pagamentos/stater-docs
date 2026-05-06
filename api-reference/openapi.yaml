@@ -3,8 +3,8 @@ info:
   title: Stric Platform API
   version: 0.1.0
   description: |
-    REST **Pix**: cobranças (QR Cobrança), envio por **chave Pix** (consulta ao titular antes, se quiser) ou **BR Code** (decode), Pix recebido (**Inbox**),
-    extrato, saldo e **webhooks** com eventos `pix.*`.
+    REST **Pix**: cobranças (QR Cobrança), envio por **chave Pix** (consulta ao titular antes, se quiser) ou **BR Code** (decode),
+    Pix recebido via **webhook** (`pix.in.received`), extrato, saldo e **webhooks** com eventos `pix.*`.
 
     ### Como autenticar
 
@@ -34,23 +34,22 @@ servers:
 
 tags:
   - name: Account
-    description: Atalhos para a conta resolvida pela API key — comece por aqui.
+    description: >-
+      Conta resolvida pela API key (`GET /v1/account`, chaves Pix, limites de pagamento). Para uma conta específica por id:
+      tarifas (`GET /v1/pix-accounts/{id}/fees`) e política de rate limit (`GET /v1/pix-accounts/{id}/rate-limit`).
+      Webhooks por conta permanecem em **Webhooks**.
   - name: Movements
     description: Saldo, extrato e consulta de movimentos.
   - name: Charges
     description: Cobranças Pix — criar, listar, consultar e refresh (receber Pix).
-  - name: Inbox
-    description: Pix recebidos na conta.
   - name: Consulta de chave Pix
     description: >-
-      Resolve titular e dados bancários a partir de uma chave Pix (CPF, CNPJ, e-mail, telefone ou EVP). Opcionalmente gere `dictLookupId` para vincular ao payout.
+      Resolve titular e dados bancários a partir de uma chave Pix (CPF, CNPJ, e-mail, telefone ou EVP). Opcionalmente gere `dictLookupId` para vincular à transferência Pix.
   - name: QR Code
     description: Decodificação de BR Code Pix.
-  - name: Payouts
-    description: Pagamentos Pix enviados via chave ou QR Code.
-  - name: Pix accounts
+  - name: Transferências Pix
     description: >-
-      Por `pixAccountId` — tarifas, multiplicador de rate limit e limites (operacional). Exige key com escopo compatível.
+      Envio de Pix para terceiros por chave ou BR Code — criar (`POST /v1/payouts` e `POST /v1/payouts/qr-code`), listar, consultar e movimento associado.
 
   - name: Webhooks
     description: >-
@@ -155,6 +154,70 @@ components:
               type: object
               description: Detalhes contextuais (campos com problema, valores, etc.). Opcional.
               additionalProperties: true
+    PaymentLimitWindow:
+      type: object
+      description: >-
+        Consumo na janela corrente (diária ou noturna): intervalo `[windowStart, windowEnd)` e saldos em centavos como string.
+      required:
+        - windowStart
+        - windowEnd
+        - consumedCents
+        - remainingCents
+      properties:
+        windowStart:
+          type: string
+          format: date-time
+          description: Início da janela (com offset de fuso, ex. `-03:00`).
+        windowEnd:
+          type: string
+          format: date-time
+          description: Fim da janela (com offset de fuso).
+        consumedCents:
+          type: string
+          pattern: ^\d+$
+          description: Centavos já consumidos nesta janela.
+        remainingCents:
+          type: string
+          pattern: ^\d+$
+          description: Centavos ainda disponíveis nesta janela.
+      additionalProperties: false
+    AccountLimitsResponse:
+      type: object
+      description: >-
+        Limites configurados (`*Cents`) mais uso na janela diária (`daily`). O campo `night` repete a mesma estrutura de
+        `daily` quando o instante da consulta está na **janela noturna** (ex.: a partir das 20h); fora desse período vem `null`.
+      required:
+        - perTransactionCents
+        - dailyCents
+        - nightCents
+        - daily
+        - night
+        - spendableNowCents
+      properties:
+        perTransactionCents:
+          type: string
+          pattern: ^\d+$
+          description: Teto por transação de Pix enviado (centavos como string).
+        dailyCents:
+          type: string
+          pattern: ^\d+$
+          description: Limite agregado na janela diária (centavos como string).
+        nightCents:
+          type: string
+          pattern: ^\d+$
+          description: Limite agregado na janela noturna (centavos como string).
+        daily:
+          $ref: '#/components/schemas/PaymentLimitWindow'
+        night:
+          nullable: true
+          description: Mesmo formato que `daily` quando aplicável à janela noturna no momento da resposta; caso contrário `null`.
+          allOf:
+            - $ref: '#/components/schemas/PaymentLimitWindow'
+        spendableNowCents:
+          type: string
+          pattern: ^\d+$
+          description: Quanto pode ser enviado agora sem ultrapassar o limite da janela vigente (centavos como string).
+      additionalProperties: false
 paths:
   /v1/account:
     get:
@@ -252,7 +315,7 @@ paths:
       tags:
         - Account
       summary: Suas chaves Pix
-      description: Lista as chaves Pix cadastradas na conta.
+      description: Lista as chaves Pix cadastradas na conta (valor bruto da chave por item).
       operationId: get_v1_account_pix_keys
       security:
         - bearerAuth: []
@@ -266,36 +329,22 @@ paths:
               schema:
                 type: object
                 properties:
-                  pixKeys:
+                  keys:
                     type: array
                     items:
                       type: object
                       properties:
-                        id:
+                        key:
                           type: string
-                        pixKey:
-                          type: string
-                        pixKeyType:
-                          type: string
-                          enum:
-                            - CPF
-                            - CNPJ
-                            - EMAIL
-                            - PHONE
-                            - EVP
-                        createdAt:
-                          type: string
-                          format: date-time
-                          pattern: >-
-                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                          minLength: 1
+                          maxLength: 200
+                          description: Valor da chave Pix (CPF/CNPJ normalizado, e-mail, telefone ou EVP).
                       required:
-                        - id
-                        - pixKey
-                        - pixKeyType
-                        - createdAt
-                      additionalProperties: {}
+                        - key
+                      additionalProperties: false
                 required:
-                  - pixKeys
+                  - keys
+                additionalProperties: false
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -311,7 +360,10 @@ paths:
       tags:
         - Account
       summary: Seus limites de pagamento
-      description: Limites por transação, diário e noturno (centavos como string).
+      description: >-
+        Limites por transação (`perTransactionCents`), janela diária (`dailyCents` + objeto `daily`) e janela noturna
+        (`nightCents` + objeto `night`). `night` é `null` fora da janela noturna; dentro dela segue o mesmo formato de `daily`.
+        `spendableNowCents` indica quanto pode ser enviado no momento.
       operationId: get_v1_account_limits
       security:
         - bearerAuth: []
@@ -323,28 +375,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  perTransactionCents:
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  dailyCents:
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  nightCents:
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                required:
-                  - perTransactionCents
-                  - dailyCents
-                  - nightCents
-                additionalProperties: {}
+                $ref: '#/components/schemas/AccountLimitsResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -946,7 +977,7 @@ paths:
         - `debtor`: QR com nome e documento do pagador.
         - `cobv`: QR com vencimento (`dueDate`) e multa (`fine`/`typeFine`).
 
-        A resposta inclui `txid`, `brCode` e `imageBase64` ou `imageUrl`.
+        A resposta inclui `txid`, `brCode` e, quando a plataforma expuser artefato hospedado, `imageUrl`.
       operationId: post_v1_charges
       security:
         - bearerAuth: []
@@ -969,8 +1000,6 @@ paths:
                       anyOf:
                         - type: string
                         - type: number
-                    base64Image:
-                      type: boolean
                     tag:
                       type: string
                       minLength: 1
@@ -993,8 +1022,6 @@ paths:
                       anyOf:
                         - type: string
                         - type: number
-                    base64Image:
-                      type: boolean
                     tag:
                       type: string
                       minLength: 1
@@ -1033,8 +1060,6 @@ paths:
                       anyOf:
                         - type: string
                         - type: number
-                    base64Image:
-                      type: boolean
                     tag:
                       type: string
                       minLength: 1
@@ -1119,9 +1144,6 @@ paths:
                     format: int64-string
                     description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
                   brCode:
-                    nullable: true
-                    type: string
-                  imageBase64:
                     nullable: true
                     type: string
                   imageUrl:
@@ -1211,7 +1233,6 @@ paths:
                   - txid
                   - amountCents
                   - brCode
-                  - imageBase64
                   - imageUrl
                   - expiresAt
                   - dueDate
@@ -1342,9 +1363,6 @@ paths:
                         brCode:
                           nullable: true
                           type: string
-                        imageBase64:
-                          nullable: true
-                          type: string
                         imageUrl:
                           nullable: true
                           type: string
@@ -1432,7 +1450,6 @@ paths:
                         - txid
                         - amountCents
                         - brCode
-                        - imageBase64
                         - imageUrl
                         - expiresAt
                         - dueDate
@@ -1529,9 +1546,6 @@ paths:
                   brCode:
                     nullable: true
                     type: string
-                  imageBase64:
-                    nullable: true
-                    type: string
                   imageUrl:
                     nullable: true
                     type: string
@@ -1619,7 +1633,6 @@ paths:
                   - txid
                   - amountCents
                   - brCode
-                  - imageBase64
                   - imageUrl
                   - expiresAt
                   - dueDate
@@ -1704,214 +1717,6 @@ paths:
           $ref: '#/components/responses/RateLimitExceeded'
         '500':
           $ref: '#/components/responses/InternalError'
-  /v1/inbox:
-    get:
-      tags:
-        - Inbox
-      summary: Lista Pix recebidos
-      description: 'Cada Pix recebido vira uma entrada. Filtros: `status` (`RECEIVED`, `PROCESSED`, `IGNORED`, `FAILED`), `limit`.'
-      operationId: get_v1_inbox
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: status
-          in: query
-          required: false
-          schema:
-            type: string
-            enum:
-              - RECEIVED
-              - PROCESSED
-              - IGNORED
-              - FAILED
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 500
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    pixAccountId:
-                      nullable: true
-                      type: string
-                    endToEndId:
-                      type: string
-                    status:
-                      type: string
-                      enum:
-                        - RECEIVED
-                        - PROCESSED
-                        - IGNORED
-                        - FAILED
-                    webhookType:
-                      nullable: true
-                      type: string
-                    rawPayload: {}
-                    coreMovementId:
-                      nullable: true
-                      type: string
-                    errorDetail:
-                      nullable: true
-                      type: string
-                    attempts:
-                      type: integer
-                      minimum: -9007199254740991
-                      maximum: 9007199254740991
-                    nextRetryAt:
-                      nullable: true
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                    receivedAt:
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                    processedAt:
-                      nullable: true
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  required:
-                    - id
-                    - pixAccountId
-                    - endToEndId
-                    - status
-                    - webhookType
-                    - rawPayload
-                    - coreMovementId
-                    - errorDetail
-                    - attempts
-                    - nextRetryAt
-                    - receivedAt
-                    - processedAt
-                  additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/inbox/{endToEndId}:
-    get:
-      tags:
-        - Inbox
-      summary: Detalhe de Pix recebido
-      description: Retorna a entrada do inbox com o payload completo do Pix recebido.
-      operationId: get_v1_inbox_endToEndId
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: endToEndId
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 1
-            maxLength: 200
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  pixAccountId:
-                    nullable: true
-                    type: string
-                  endToEndId:
-                    type: string
-                  status:
-                    type: string
-                    enum:
-                      - RECEIVED
-                      - PROCESSED
-                      - IGNORED
-                      - FAILED
-                  webhookType:
-                    nullable: true
-                    type: string
-                  rawPayload: {}
-                  coreMovementId:
-                    nullable: true
-                    type: string
-                  errorDetail:
-                    nullable: true
-                    type: string
-                  attempts:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  nextRetryAt:
-                    nullable: true
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  receivedAt:
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  processedAt:
-                    nullable: true
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                required:
-                  - id
-                  - pixAccountId
-                  - endToEndId
-                  - status
-                  - webhookType
-                  - rawPayload
-                  - coreMovementId
-                  - errorDetail
-                  - attempts
-                  - nextRetryAt
-                  - receivedAt
-                  - processedAt
-                additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /v1/dict/lookup:
     post:
       tags:
@@ -1919,7 +1724,7 @@ paths:
       summary: Consulta titular e dados da chave Pix
       description: >-
         Retorna nome do titular, banco e dados da conta vinculados à chave. O campo `id` da resposta pode ser enviado
-        em `POST /v1/payouts` como `dictLookupId` para ligar esta consulta ao pagamento — no payout continuam obrigatórios
+        em `POST /v1/payouts` como `dictLookupId` para ligar esta consulta à transferência — na criação continuam obrigatórios
         `pixKey`, `pixKeyType` e `amountCents`.
       operationId: post_v1_dict_lookup
       security:
@@ -2029,7 +1834,7 @@ paths:
       summary: Decodifica BR Code Pix
       description: >-
         Faz parse de um BR Code (copy-and-paste) e retorna chave, valor, beneficiário e instituição. O `id` retornado
-        pode ser passado em `POST /v1/payouts/qr-code` (campo `qrCodeDecodeId`).
+        pode ser passado na transferência por QR Code (`POST /v1/payouts/qr-code`, campo `qrCodeDecodeId`).
       operationId: post_v1_qr_code_decode
       security:
         - bearerAuth: []
@@ -2124,11 +1929,11 @@ paths:
   /v1/payouts:
     post:
       tags:
-        - Payouts
+        - Transferências Pix
       summary: Envia Pix via chave
       description: |-
         Cria um pagamento Pix usando chave (**`pixKey` + `pixKeyType` obrigatórios**) e **`amountCents`**. Você pode
-        incluir `dictLookupId` depois que consultou essa mesma combinação em **`POST /v1/dict/lookup`** — assim o payout
+        incluir `dictLookupId` depois que consultou essa mesma combinação em **`POST /v1/dict/lookup`** — assim a transferência
         fica auditável junto à consulta do titular.
 
         Resultado:
@@ -2223,7 +2028,7 @@ paths:
           $ref: '#/components/responses/InternalError'
     get:
       tags:
-        - Payouts
+        - Transferências Pix
       summary: Lista pagamentos enviados
       description: Paginação por cursor. Filtro por `status`.
       operationId: get_v1_payouts
@@ -2440,10 +2245,10 @@ paths:
   /v1/payouts/qr-code:
     post:
       tags:
-        - Payouts
+        - Transferências Pix
       summary: Envia Pix via QR Code
       description: >-
-        Mesma semântica de `POST /v1/payouts`, mas usando um BR Code (copy-and-paste) em vez de chave. Passe
+        Mesma semântica da transferência por chave (`POST /v1/payouts`), mas usando um BR Code (copy-and-paste). Passe
         `qrCodeDecodeId` se você decodificou o QR antes.
       operationId: post_v1_payouts_qr_code
       security:
@@ -2525,7 +2330,7 @@ paths:
   /v1/payouts/{id}:
     get:
       tags:
-        - Payouts
+        - Transferências Pix
       summary: Consulta pagamento por id
       description: >-
         Retorna o pagamento com `status`, `endToEndId`, `lastError` (em caso de falha) e — quando rejeitado —
@@ -2707,7 +2512,7 @@ paths:
   /v1/payouts/{id}/movement:
     get:
       tags:
-        - Payouts
+        - Transferências Pix
       summary: Movimento associado ao pagamento
       description: Atalho que retorna o lançamento de débito gerado por esse pagamento.
       operationId: get_v1_payouts_id_movement
@@ -2842,111 +2647,10 @@ paths:
           $ref: '#/components/responses/RateLimitExceeded'
         '500':
           $ref: '#/components/responses/InternalError'
-  /v1/pix-accounts/{id}:
-    get:
-      tags:
-        - Pix accounts
-      summary: Consulta conta Pix por id
-      description: Mesma resposta de `GET /v1/account`, mas consultando explicitamente por id.
-      operationId: get_v1_pix_accounts_id
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  tenantId:
-                    type: string
-                  coreAccountId:
-                    type: string
-                  branchIdentifier:
-                    type: string
-                  accountNumber:
-                    type: string
-                  label:
-                    nullable: true
-                    type: string
-                  enabled:
-                    type: boolean
-                  pixInFeeCents:
-                    nullable: true
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  pixInFeeBps:
-                    nullable: true
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  pixOutFeeCents:
-                    nullable: true
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  pixOutFeeBps:
-                    nullable: true
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  createdAt:
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  updatedAt:
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                required:
-                  - id
-                  - tenantId
-                  - coreAccountId
-                  - branchIdentifier
-                  - accountNumber
-                  - label
-                  - enabled
-                  - pixInFeeCents
-                  - pixInFeeBps
-                  - pixOutFeeCents
-                  - pixOutFeeBps
-                  - createdAt
-                  - updatedAt
-                additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /v1/pix-accounts/{id}/fees:
     get:
       tags:
-        - Pix accounts
+        - Account
       summary: Tarifas da conta
       description: >-
         Tarifas Pix in/out. Cada uma tem um componente fixo (`*FeeCents`) e um componente percentual em basis points
@@ -3012,73 +2716,14 @@ paths:
           $ref: '#/components/responses/RateLimitExceeded'
         '500':
           $ref: '#/components/responses/InternalError'
-  /v1/pix-accounts/{id}/limits:
-    get:
-      tags:
-        - Pix accounts
-      summary: Limites da conta
-      description: Mesma resposta de `GET /v1/account/limits`.
-      operationId: get_v1_pix_accounts_id_limits
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  perTransactionCents:
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  dailyCents:
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  nightCents:
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                required:
-                  - perTransactionCents
-                  - dailyCents
-                  - nightCents
-                additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /v1/pix-accounts/{id}/rate-limit:
     get:
       tags:
-        - Pix accounts
-      summary: Multiplicador de rate limit
+        - Account
+      summary: Rate limit
       description: >-
-        Retorna o `multiplier` aplicado aos limites de requests da conta (1.0 = padrão; 0 = sem limite; 0.01..100 =
-        escala) e os limites efetivos por rota em `effective`.
+        Retorna o multiplicador aplicado aos limites de requisições da conta (`multiplier`: 1.0 = padrão; 0 = sem limite;
+        0.01..100 = escala) e os limites efetivos por rota em `effective`.
       operationId: get_v1_pix_accounts_id_rate_limit
       security:
         - bearerAuth: []
@@ -3130,7 +2775,7 @@ paths:
       description: >-
         Cadastra uma URL para receber eventos da conta. O body `events` lista os tipos assinados — use exatamente um
         destes nomes: `pix.in.received`, `pix.payout.succeeded`, `pix.payout.failed`, `pix.payout.cancelled`,
-        `pix.payout.refunded`, `pix.charge.paid`, `pix.charge.expired`, `pix.charge.refunded`. Payloads e headers de
+        `pix.payout.refunded`, `pix.charge.paid`, `pix.charge.expired`, `pix.charge.refunded` (os `pix.payout.*` são o ciclo da transferência Pix enviada — o nome do evento na API permanece `pix.payout.*`). Payloads e headers de
         cada entrega (`webhook-event-type`, etc.) estão documentados no guia Webhooks.
       operationId: post_v1_pix_accounts_id_webhooks
       security:

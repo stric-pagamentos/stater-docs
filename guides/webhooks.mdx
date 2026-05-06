@@ -4,7 +4,7 @@ description: "Receba eventos da Stric em tempo real no seu sistema"
 ---
 
 Webhooks são a forma recomendada de saber quando algo muda na sua conta:
-Pix recebido (`pix.in.*`), ciclo de payout (`pix.payout.*`), cobranças
+Pix recebido (`pix.in.*`), ciclo da transferência Pix enviada (`pix.payout.*`), cobranças
 (`pix.charge.*`). A Stric envia um **HTTP POST** para cada URL registrada.
 
 ## 1. Registrar um endpoint
@@ -143,14 +143,16 @@ Ao registrar o webhook, cada string deve ser **exatamente** um dos nomes abaixo.
 | -------------------- | ----------------------------------------------- |
 | `pix.in.received`    | Pix creditado na conta (sem fluxo de cobrança pré-cadastrado). |
 
-### Payout enviado
+### Transferência Pix enviada
+
+Os nomes dos eventos permanecem **`pix.payout.*`** na API; aqui chamamos o fluxo de **transferência Pix** (envio para terceiros).
 
 | Evento                     | Significado                                                |
 | -------------------------- | ---------------------------------------------------------- |
 | `pix.payout.succeeded`      | Liquidação concluída com sucesso.                          |
 | `pix.payout.failed`         | Falha definitiva (`reason` com código quando aplicável).  |
 | `pix.payout.cancelled`       | Pagamento cancelado (`reason` pode ser `null`).            |
-| `pix.payout.refunded`       | Estorno relacionado ao payout (parcial ou total). Veja exemplos abaixo. |
+| `pix.payout.refunded`       | Estorno relacionado à transferência (parcial ou total). Veja exemplos abaixo. |
 
 ### Cobrança (charge / QR Cobrança)
 
@@ -233,7 +235,7 @@ Em todos os exemplos os headers são os da seção anterior; o tipo sempre vem d
   <Accordion title="pix.payout.refunded">
     **`webhook-event-type`**: `pix.payout.refunded`
 
-    **`amountCents`** é o valor original do payout. **`refundAmountCents`** é o valor **deste** estorno individual. Para detectar refund parcial, compare `refundAmountCents < amountCents`. Estornos parciais geram vários webhooks separados — cada um com `eventId` único quando a plataforma o enviar no envelope (referência conceitual: `payout-refunded-{payoutId}-{refundEndToEndId}`).
+    **`amountCents`** é o valor original da transferência. **`refundAmountCents`** é o valor **deste** estorno individual. Para detectar refund parcial, compare `refundAmountCents < amountCents`. Estornos parciais geram vários webhooks separados — cada um com `eventId` único quando a plataforma o enviar no envelope (referência conceitual: `transferencia-refunded-{payoutId}-{refundEndToEndId}` — o campo no JSON continua sendo `payoutId`).
 
     Refund **parcial**:
 
@@ -284,7 +286,7 @@ Em todos os exemplos os headers são os da seção anterior; o tipo sempre vem d
   <Accordion title="pix.charge.refunded">
     **`webhook-event-type`**: `pix.charge.refunded`
 
-    Mesmo padrão dos payouts pagos via refund: **`amountCents`** = valor original da cobrança que foi liquidada; **`refundAmountCents`** = valor deste refund. Para **R$ 100,00** pagos (**`"10000"`** centavos), um refund de **R$ 25,00**:
+    Mesma convenção que em **`pix.payout.refunded`**: **`amountCents`** = valor original da cobrança que foi liquidada; **`refundAmountCents`** = valor deste refund. Para **R$ 100,00** pagos (**`"10000"`** centavos), um refund de **R$ 25,00**:
 
     ```json
     {
