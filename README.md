@@ -21,8 +21,8 @@ Documentação pública da API Pix da Stric, construída no [Mintlify](https://m
 ├── api-reference/
 │   ├── introduction.mdx          # Visão geral
 │   └── openapi.yaml              # Spec da Stric Platform 0.1.0
-├── logo/                         # light.svg, dark.svg (adicionar)
-└── images/                       # Diagramas, screenshots (adicionar)
+├── logo/                         # opcional: assets locais (ou use URL no docs.json)
+└── images/                       # diagramas, screenshots (opcional)
 ```
 
 ## Setup local
@@ -46,14 +46,13 @@ mint dev
 
 ## O que ainda falta personalizar
 
-- [ ] Adicionar `logo/light.svg` e `logo/dark.svg`
-- [ ] Adicionar `favicon.svg` na raiz
+- [x] Logo no `docs.json` (URL S3 em `logo.light` / `logo.dark`)
+- [ ] `favicon.svg` na raiz (referenciado em `docs.json`)
 - [ ] Confirmar URLs no `docs.json`: `app.stric.io`, `status.stric.io`,
       links de redes sociais, e-mail de suporte
 - [ ] Validar exemplos de payload do quickstart com a API real
       (chaves, contas, valores)
-- [ ] Confirmar lista exata de eventos de webhook em
-      `guides/webhooks.mdx`
+- [ ] Alinhar exemplos de `events` em `guides/webhooks.mdx` com o que o produto aceita no painel
 - [ ] Adicionar diagramas (Mermaid) onde fizer sentido — Mintlify suporta
       nativamente
 - [ ] Configurar domínio customizado (ex.: `docs.stric.io`)

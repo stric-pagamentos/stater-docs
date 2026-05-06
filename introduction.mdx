@@ -46,6 +46,19 @@ notificação em tempo real por webhooks.
 
 ## Ambientes
 
-| Ambiente   | Base URL                        | Uso                                |
-| ---------- | ------------------------------- | ---------------------------------- |
-| Produção   | `https://stater.stric.io`       | Operações reais                    |
+A **URL base da API é a mesma** para produção e sandbox; o que muda é o
+**tipo de API key** que você gera no [painel](https://app.stric.io) (produção
+vs sandbox).
+
+| Ambiente   | Base URL                        | Uso |
+| ---------- | -------------------------------- | --- |
+| Produção / Sandbox | `https://stater.stric.io` | Key de produção → operações reais. Key de **sandbox** → testes sem movimentação real. |
+| Desenvolvimento local | `http://localhost:3031` | Só quando você executa o backend Stric na sua máquina (vide `servers` no OpenAPI). |
+
+## Próximos passos
+
+- [Quickstart](/quickstart) — saldo + primeiro lookup DICT em poucos minutos
+- [Autenticação](/guides/authentication) — Bearer, `X-Pix-Account-Id` e keys por conta
+- [Referência da API](/api-reference/introduction) — playground OpenAPI por endpoint
+
+Para dúvidas operacionais, use **Suporte** no topo desta documentação.

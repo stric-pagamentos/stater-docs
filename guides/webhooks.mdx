@@ -36,7 +36,18 @@ requisição de webhook. Compare com o valor que você guardou:
 
 ```javascript Node.js (Express)
 import express from "express";
+import crypto from "node:crypto";
+
 const app = express();
+
+function timingSafeEqualUtf8(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) {
+    return false;
+  }
+  const ab = Buffer.from(a, "utf8");
+  const bb = Buffer.from(b, "utf8");
+  return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
+}
 
 app.post(
   "/webhooks/stric",
@@ -45,7 +56,7 @@ app.post(
     const incoming = req.headers.authorization;
     const expected = `Bearer ${process.env.STRIC_WEBHOOK_TOKEN}`;
 
-    if (!incoming || !timingSafeEqual(incoming, expected)) {
+    if (!timingSafeEqualUtf8(incoming ?? "", expected)) {
       return res.status(401).end();
     }
 
@@ -58,13 +69,6 @@ app.post(
     enqueue(req.body);
   }
 );
-
-function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  return crypto.timingSafeEqual(ab, bb);
-}
 ```
 
 ```python Python (FastAPI)
@@ -114,7 +118,11 @@ async def stric_webhook(
 
 ## Eventos disponíveis
 
-A lista completa depende da configuração da sua conta. Padrões comuns:
+O corpo do `POST .../webhooks` exige `events` como array de strings (veja o
+schema no OpenAPI). Quais nomes de evento são aceitos para **sua** conta pode
+variar — confira no painel ou nos webhooks já cadastrados (`GET` no mesmo recurso).
+
+Padrões comuns:
 
 | Categoria  | Eventos                                                |
 | ---------- | ------------------------------------------------------ |

@@ -27,6 +27,14 @@ com detalhes estruturados.
 | `error.message`  | Mensagem human-readable                                    |
 | `error.details`  | Contexto adicional (campos com problema, valores) — opcional |
 
+## Correlacionação e suporte
+
+Além do JSON de erro, guarde na sua aplicação o **status HTTP** e qualquer valor
+único disponível nos **headers da resposta** (ids de correlacionação costumam
+vir aí quando o gateway os expõe). Ao acionar o suporte, passe `error.code`,
+o status HTTP e esse identificador, se você o tiver nos logs — facilita encontrar
+a requisição exata nos nossos sistemas.
+
 ## Códigos por status
 
 ### 400 — `VALIDATION_ERROR`

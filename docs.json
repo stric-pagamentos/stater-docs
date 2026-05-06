@@ -4,9 +4,9 @@
   "name": "Stric Platform",
   "description": "API Pix da Stric — documentação para desenvolvedores",
   "colors": {
-    "primary": "#0F766E",
-    "light": "#14B8A6",
-    "dark": "#0F766E"
+    "primary": "#2b1f70",
+    "light": "#2b1f70",
+    "dark": "#2b1f70"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -59,8 +59,8 @@
     ]
   },
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "https://stric-bank-api.s3.us-east-1.amazonaws.com/copyo/clients/logos/stricbank/stric-logo.png",
+    "dark": "https://stric-bank-api.s3.us-east-1.amazonaws.com/copyo/clients/logos/stricbank/stric-logo.png"
   },
   "navbar": {
     "links": [

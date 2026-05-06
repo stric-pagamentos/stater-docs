@@ -12,7 +12,9 @@ Neste guia você vai:
 ## 1. Sua API key
 
 Acesse o [painel](https://app.stric.io) → **Configurações → API keys** e gere
-uma chave. Use o ambiente **sandbox** para os primeiros testes.
+uma chave. Para os primeiros testes use uma key de **sandbox** — a URL da API é
+a mesma (`https://stater.stric.io`); apenas o vínculo/tipo da key isola o
+ambiente.
 
 <Warning>
   A API key dá acesso completo ao escopo configurado. Trate como senha:
@@ -78,6 +80,7 @@ o titular da chave e obter o `dictLookupId`.
 ```bash cURL
 curl -X POST "$STRIC_BASE_URL/v1/dict/lookup" \
   -H "Authorization: Bearer $STRIC_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -H "Content-Type: application/json" \
   -d '{
     "pixKey": "exemplo@stric.io",
@@ -86,19 +89,27 @@ curl -X POST "$STRIC_BASE_URL/v1/dict/lookup" \
 ```
 
 ```python Python
+import os, uuid, requests
+
 r = requests.post(
     f"{os.environ['STRIC_BASE_URL']}/v1/dict/lookup",
-    headers={"Authorization": f"Bearer {os.environ['STRIC_API_KEY']}"},
+    headers={
+        "Authorization": f"Bearer {os.environ['STRIC_API_KEY']}",
+        "Idempotency-Key": str(uuid.uuid4()),
+    },
     json={"pixKey": "exemplo@stric.io", "pixKeyType": "EMAIL"},
 )
 print(r.json())
 ```
 
 ```javascript Node.js
+import { randomUUID } from "node:crypto";
+
 const r = await fetch(`${process.env.STRIC_BASE_URL}/v1/dict/lookup`, {
   method: "POST",
   headers: {
     Authorization: `Bearer ${process.env.STRIC_API_KEY}`,
+    "Idempotency-Key": randomUUID(),
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
