@@ -10,6 +10,8 @@ recebe `429 RATE_LIMIT_EXCEEDED` com o header `Retry-After`.
 
 Use **`GET /v1/pix-accounts/{id}/rate-limit`** (referência **Rate limit**): a resposta traz o fator aplicado à conta (`multiplier`) e os limites efetivos por rota (`effective`).
 
+O **`{id}`** no path é o identificador da **conta Pix** (`pixAccountId`): o mesmo `id` retornado em **`GET /v1/account`**, usado nas URLs de webhooks (`/v1/pix-accounts/{id}/webhooks`…) e que aparece como `pixAccountId` nos payloads de eventos.
+
 ```bash
 curl "$STRIC_BASE_URL/v1/pix-accounts/{id}/rate-limit" \
   -H "Authorization: Bearer $STRIC_API_KEY"

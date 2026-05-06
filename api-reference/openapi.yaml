@@ -28,6 +28,9 @@ info:
   contact:
     name: Suporte Stric
     email: suporte@stric.io
+  license:
+    name: Proprietary
+    url: https://stric.io
 servers:
   - url: https://stater.stric.io
     description: API pública (`stater`)
@@ -209,6 +212,7 @@ components:
         daily:
           $ref: '#/components/schemas/PaymentLimitWindow'
         night:
+          type: object
           nullable: true
           description: Mesmo formato que `daily` quando aplicável à janela noturna no momento da resposta; caso contrário `null`.
           allOf:
