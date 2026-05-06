@@ -67,15 +67,15 @@ curl "$STRIC_BASE_URL/v1/charges/$CHARGE_ID" \
 Quando alguém envia Pix direto para uma **chave Pix cadastrada na sua conta**
 sem você ter criado cobrança antes:
 
-1. **Notificação**: cadastre um webhook e assine **`pix.in.received`** — o body
-   traz valor, `endToEndId`, pagador, etc. Veja exemplos em [Webhooks](/guides/webhooks).
+1. **Notificação**: cadastre um webhook e assine **`pix.in.received`** — em **`data`**
+   vêm valor, `endToEndId`, pagador, etc. Veja exemplos em [Webhooks](/guides/webhooks).
 2. **Auditoria / backup**: use **`GET /v1/statement`** (lista paginada de movimentos)
    e **`GET /v1/movements/{id}`** / **`GET /v1/movements/{id}/full`** quando você já
    souber o id do movimento. Consulte a referência **Movements** no OpenAPI para filtros
    (`from`, `to`, `type`, `source`, etc.).
 
 <Note>
-  O **`endToEndId`** (presente no webhook `pix.in.received`) é o identificador único
+  O **`endToEndId`** (em **`data`** no webhook `pix.in.received`) é o identificador único
   do Pix no arranjo — priorize ele na conciliação com o seu ledger.
 </Note>
 
@@ -91,8 +91,8 @@ sem você ter criado cobrança antes:
     falhar, você pode reprocessar sem perder dados.
   </Accordion>
   <Accordion title="Trate eventos duplicados" icon="rotate">
-    O webhook pode chegar mais de uma vez. Use o `eventId` ou `endToEndId`
-    pra deduplicar no seu lado.
+    O webhook pode chegar mais de uma vez. Deduplique por campos estáveis em **`data`**
+    (ex.: `endToEndId`) ou por **`eventId`**, quando a plataforma incluir no corpo.
   </Accordion>
   <Accordion title="Reconcilie periodicamente" icon="calendar">
     Mesmo com webhooks confiáveis, rode reconciliação rotineira contra **`GET /v1/charges`**

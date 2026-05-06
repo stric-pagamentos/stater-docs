@@ -24,7 +24,7 @@ info:
 
     ### Webhooks na documentação
 
-    Tipos aceitos (`pix.in.received`, `pix.charge.paid`, etc.), header `webhook-event-type` e exemplos completos — guia **Webhooks** nos Guias à esquerda.
+    Tipos aceitos (`pix.in.received`, `pix.charge.paid`, etc.), envelope `{ event, data }`, header `webhook-event-type` e exemplos — guia **Webhooks**.
   contact:
     name: Suporte Stric
     email: suporte@stric.io
@@ -56,7 +56,7 @@ tags:
 
   - name: Webhooks
     description: >-
-      Cadastro de URLs HTTPS que recebem `POST` por evento. Header `webhook-event-type`; payloads em guia Webhooks.
+      Cadastro de URLs HTTPS que recebem `POST` com `{ event, data }`. Header `webhook-event-type` = `event`; guia Webhooks.
 components:
   securitySchemes:
     bearerAuth:
@@ -2780,7 +2780,8 @@ paths:
         Cadastra uma URL para receber eventos da conta. O body `events` lista os tipos assinados — use exatamente um
         destes nomes: `pix.in.received`, `pix.payout.succeeded`, `pix.payout.failed`, `pix.payout.cancelled`,
         `pix.payout.refunded`, `pix.charge.paid`, `pix.charge.expired`, `pix.charge.refunded` (os `pix.payout.*` são o ciclo da transferência Pix enviada — o nome do evento na API permanece `pix.payout.*`). Payloads e headers de
-        cada entrega (`webhook-event-type`, etc.) estão documentados no guia Webhooks.
+        cada entrega: corpo JSON `{ "event": "<tipo>", "data": { ... } }`, header `webhook-event-type` igual a `event`
+        — detalhes no guia Webhooks.
       operationId: post_v1_pix_accounts_id_webhooks
       security:
         - bearerAuth: []

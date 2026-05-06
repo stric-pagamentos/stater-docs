@@ -65,7 +65,7 @@ app.post(
       return res.status(401).end();
     }
 
-    // Roteie com req.get("webhook-event-type") antes de processar o body
+    // `req.body.event` === header `webhook-event-type`; o payload útil está em `req.body.data`
     saveEvent(req.body);
 
     // Responda 2xx rápido — processamento real fica em fila
@@ -93,7 +93,7 @@ async def stric_webhook(
     if not authorization or not hmac.compare_digest(authorization, EXPECTED):
         raise HTTPException(status_code=401)
 
-    # Roteie com webhook_event_type antes de processar o payload
+    # `payload["event"]` === header webhook-event-type; dados em `payload["data"]`
     payload = await request.json()
     save_event(payload)              # persistência síncrona
     background.add_task(process, payload)
@@ -108,7 +108,7 @@ async def stric_webhook(
 | -------------------- | --------- |
 | `Authorization`      | Quando você definiu `authToken` ao registrar: `Bearer <authToken>` (valide igual ao exemplo acima). |
 | `Content-Type`       | `application/json` |
-| `webhook-event-type` | Identifica o tipo do evento (mesmo valor usado ao assinar — ex.: `pix.in.received`). Use para rotear antes de despachar o body. |
+| `webhook-event-type` | Mesmo valor que o campo **`event`** no JSON do body (ex.: `pix.in.received`). Útil pra rotear antes de parsear o corpo. |
 
 ## 3. Boas práticas no handler
 
@@ -118,8 +118,8 @@ async def stric_webhook(
     responda imediatamente — processe assincronamente em fila.
   </Accordion>
   <Accordion title="Idempotência no seu lado também" icon="rotate">
-    A Stric pode reentregar um evento. Deduplique pelo `eventId` (quando
-    vier no envelope) ou por um par estável por domínio — ex.: `endToEndId`,
+    A Stric pode reentregar um evento. Deduplique pelo `eventId` (quando existir
+    no JSON) ou por um par estável dentro de **`data`** — ex.: `endToEndId`,
     `{ chargeId, endToEndId }`, `{ payoutId, refundEndToEndId }` em refunds com
     múltiplos parciais.
   </Accordion>
@@ -162,92 +162,112 @@ Os nomes dos eventos permanecem **`pix.payout.*`** na API; aqui chamamos o fluxo
 | `pix.charge.expired`       | Cobrança expirou sem pagamento.                                                  |
 | `pix.charge.refunded`       | Estorno relacionado à cobrança (parcial ou total). Veja exemplos abaixo. |
 
-## Exemplos de payload por evento
+## Corpo da entrega (JSON)
 
-Em todos os exemplos os headers são os da seção anterior; o tipo sempre vem duplicado no header **`webhook-event-type`** (valor igual ao nome do evento).
+Cada **`POST`** traz um objeto com:
+
+- **`event`**: string igual ao tipo assinado (e ao header **`webhook-event-type`**).
+- **`data`**: objeto com os campos específicos daquele evento (Pix recebido, transferência, cobrança, etc.).
+
+Os exemplos abaixo mostram o **corpo completo** enviado pela Stric.
 
 <AccordionGroup>
   <Accordion title="pix.in.received">
-    **`webhook-event-type`**: `pix.in.received`
+    **`event`** / **`webhook-event-type`**: `pix.in.received`
 
     ```json
     {
-      "payerName": "Pedro Ferreira de Souza",
-      "endToEndId": "E18236120202605041049s078600ecc6",
-      "movementId": "cmor2uwya002inxqkoyow2167",
-      "receivedAt": "2026-05-04T10:49:34.558Z",
-      "amountCents": "120",
-      "payerBranch": "1",
-      "paymentDate": "2026-05-04 10:49:33.995783+00:00",
-      "payerAccount": "49773517",
-      "pixAccountId": "cmokguchz0004duqk7pj3f2e4",
-      "coreAccountId": "cmokguchu0003duqkodsv49bx",
-      "payerDocument": "17227372361",
-      "payerInstitution": "18236120"
+      "event": "pix.in.received",
+      "data": {
+        "payerName": "Pedro Ferreira de Souza",
+        "endToEndId": "E18236120202605041049s078600ecc6",
+        "movementId": "cmor2uwya002inxqkoyow2167",
+        "receivedAt": "2026-05-04T10:49:34.558Z",
+        "amountCents": "120",
+        "payerBranch": "1",
+        "paymentDate": "2026-05-04 10:49:33.995783+00:00",
+        "payerAccount": "49773517",
+        "pixAccountId": "cmokguchz0004duqk7pj3f2e4",
+        "coreAccountId": "cmokguchu0003duqkodsv49bx",
+        "payerDocument": "17227372361",
+        "payerInstitution": "18236120"
+      }
     }
     ```
   </Accordion>
 
   <Accordion title="pix.payout.succeeded">
-    **`webhook-event-type`**: `pix.payout.succeeded`
+    **`event`** / **`webhook-event-type`**: `pix.payout.succeeded`
 
     ```json
     {
-      "payoutId": "cmor2rhuj0025nxqka1bh1ep8",
-      "endToEndId": "E318414742026050410462USJ7TLXDK4",
-      "movementId": "cmor2rhu80022nxqkx2td17op",
-      "occurredAt": "2026-05-04T10:46:57.375Z",
-      "amountCents": "100"
+      "event": "pix.payout.succeeded",
+      "data": {
+        "payoutId": "cmoul96ld003w5vqkgrmqky77",
+        "endToEndId": "E373198592026050621476T92Q4O7ZJF",
+        "movementId": "cmoul96kx003t5vqkzkaqzskl",
+        "occurredAt": "2026-05-06T21:48:08.809Z",
+        "amountCents": "1"
+      }
     }
     ```
   </Accordion>
 
   <Accordion title="pix.payout.failed">
-    **`webhook-event-type`**: `pix.payout.failed`
+    **`event`** / **`webhook-event-type`**: `pix.payout.failed`
 
     ```json
     {
-      "payoutId": "cmor35abc002vnxqkp1q9wzj4",
-      "movementId": "cmor35abc0030nxqk5kf2x8d1",
-      "endToEndId": "E18236120202605041102k08aabb1234",
-      "amountCents": "5000",
-      "occurredAt": "2026-05-04T11:02:14.227Z",
-      "reason": "recipient_not_found"
+      "event": "pix.payout.failed",
+      "data": {
+        "payoutId": "cmor35abc002vnxqkp1q9wzj4",
+        "movementId": "cmor35abc0030nxqk5kf2x8d1",
+        "endToEndId": "E18236120202605041102k08aabb1234",
+        "amountCents": "5000",
+        "occurredAt": "2026-05-04T11:02:14.227Z",
+        "reason": "recipient_not_found"
+      }
     }
     ```
   </Accordion>
 
   <Accordion title="pix.payout.cancelled">
-    **`webhook-event-type`**: `pix.payout.cancelled`
+    **`event`** / **`webhook-event-type`**: `pix.payout.cancelled`
 
     ```json
     {
-      "payoutId": "cmor36def0031nxqkqr2xahg9",
-      "movementId": "cmor36def0035nxqk7a8tc4e2",
-      "endToEndId": "E18236120202605041105m08c12cd567",
-      "amountCents": "2500",
-      "occurredAt": "2026-05-04T11:05:42.918Z",
-      "reason": null
+      "event": "pix.payout.cancelled",
+      "data": {
+        "payoutId": "cmor36def0031nxqkqr2xahg9",
+        "movementId": "cmor36def0035nxqk7a8tc4e2",
+        "endToEndId": "E18236120202605041105m08c12cd567",
+        "amountCents": "2500",
+        "occurredAt": "2026-05-04T11:05:42.918Z",
+        "reason": null
+      }
     }
     ```
   </Accordion>
 
   <Accordion title="pix.payout.refunded">
-    **`webhook-event-type`**: `pix.payout.refunded`
+    **`event`** / **`webhook-event-type`**: `pix.payout.refunded`
 
-    **`amountCents`** é o valor original da transferência. **`refundAmountCents`** é o valor **deste** estorno individual. Para detectar refund parcial, compare `refundAmountCents < amountCents`. Estornos parciais geram vários webhooks separados — cada um com `eventId` único quando a plataforma o enviar no envelope (referência conceitual: `transferencia-refunded-{payoutId}-{refundEndToEndId}` — o campo no JSON continua sendo `payoutId`).
+    Dentro de **`data`**, **`amountCents`** é o valor original da transferência e **`refundAmountCents`** o valor **deste** estorno. Para refund parcial, compare `refundAmountCents < amountCents`. Estornos parciais geram vários webhooks separados — deduplique por par estável (ex.: `refundEndToEndId`); se existir **`eventId`** no envelope, use-o também (referência conceitual: `transferencia-refunded-{payoutId}-{refundEndToEndId}`).
 
     Refund **parcial**:
 
     ```json
     {
-      "payoutId": "cmor37ghi0040nxqk83df9k1m",
-      "movementId": "cmor37ghi0044nxqkpw5lzny6",
-      "endToEndId": "E31841474202605041107T08DEF12345",
-      "amountCents": "250",
-      "occurredAt": "2026-05-04T11:07:23.488Z",
-      "refundEndToEndId": "D00416968202605041108UpxYi1K5gFV",
-      "refundAmountCents": "100"
+      "event": "pix.payout.refunded",
+      "data": {
+        "payoutId": "cmor37ghi0040nxqk83df9k1m",
+        "movementId": "cmor37ghi0044nxqkpw5lzny6",
+        "endToEndId": "E31841474202605041107T08DEF12345",
+        "amountCents": "250",
+        "occurredAt": "2026-05-04T11:07:23.488Z",
+        "refundEndToEndId": "D00416968202605041108UpxYi1K5gFV",
+        "refundAmountCents": "100"
+      }
     }
     ```
 
@@ -255,50 +275,59 @@ Em todos os exemplos os headers são os da seção anterior; o tipo sempre vem d
 
     ```json
     {
-      "payoutId": "cmor38jkl0050nxqkk3ce8fr1",
-      "movementId": "cmor38jkl0054nxqkx2td8j6n",
-      "endToEndId": "E18236120202605041109K08FGH67890",
-      "amountCents": "5000",
-      "occurredAt": "2026-05-04T11:09:05.612Z",
-      "refundEndToEndId": "D31841474202605041110ZqRm2L6hHWb",
-      "refundAmountCents": "5000"
+      "event": "pix.payout.refunded",
+      "data": {
+        "payoutId": "cmor38jkl0050nxqkk3ce8fr1",
+        "movementId": "cmor38jkl0054nxqkx2td8j6n",
+        "endToEndId": "E18236120202605041109K08FGH67890",
+        "amountCents": "5000",
+        "occurredAt": "2026-05-04T11:09:05.612Z",
+        "refundEndToEndId": "D31841474202605041110ZqRm2L6hHWb",
+        "refundAmountCents": "5000"
+      }
     }
     ```
   </Accordion>
 
   <Accordion title="pix.charge.paid">
-    **`webhook-event-type`**: `pix.charge.paid`
+    **`event`** / **`webhook-event-type`**: `pix.charge.paid`
 
     ```json
     {
-      "tag": null,
-      "txid": "a7b2507c757f4881859d6f72efc4309d",
-      "chargeId": "cmor30g1s002ungqkovmpy3b7",
-      "endToEndId": "E18236120202605041054s07e2c3edef",
-      "movementId": "cmor30wh50036nxqkuzw3fqpv",
-      "occurredAt": "2026-05-04T10:54:13.879Z",
-      "amountCents": "300",
-      "refundEndToEndId": null
+      "event": "pix.charge.paid",
+      "data": {
+        "tag": null,
+        "txid": "a7b2507c757f4881859d6f72efc4309d",
+        "chargeId": "cmor30g1s002ungqkovmpy3b7",
+        "endToEndId": "E18236120202605041054s07e2c3edef",
+        "movementId": "cmor30wh50036nxqkuzw3fqpv",
+        "occurredAt": "2026-05-04T10:54:13.879Z",
+        "amountCents": "300",
+        "refundEndToEndId": null
+      }
     }
     ```
   </Accordion>
 
   <Accordion title="pix.charge.refunded">
-    **`webhook-event-type`**: `pix.charge.refunded`
+    **`event`** / **`webhook-event-type`**: `pix.charge.refunded`
 
-    Mesma convenção que em **`pix.payout.refunded`**: **`amountCents`** = valor original da cobrança que foi liquidada; **`refundAmountCents`** = valor deste refund. Para **R$ 100,00** pagos (**`"10000"`** centavos), um refund de **R$ 25,00**:
+    Mesma convenção que em **`pix.payout.refunded`**, nos campos dentro de **`data`**: **`amountCents`** = valor original da cobrança liquidada; **`refundAmountCents`** = valor deste refund. Exemplo para **R$ 100,00** pagos (**`"10000"`** centavos) com refund de **R$ 25,00**:
 
     ```json
     {
-      "tag": "pedido-9821",
-      "txid": "8f3b22c1d4e74d6a9e1f55a62efa7b3c",
-      "chargeId": "cmor39mno0060nxqkzz1kr7p3",
-      "movementId": "cmor39mno0064nxqkqo2lc8h7",
-      "endToEndId": "E18236120202605041112s08efgh4321",
-      "refundEndToEndId": "D31841474202605041113XyAb3M8jJYc",
-      "amountCents": "10000",
-      "occurredAt": "2026-05-04T11:13:18.954Z",
-      "refundAmountCents": "2500"
+      "event": "pix.charge.refunded",
+      "data": {
+        "tag": "pedido-9821",
+        "txid": "8f3b22c1d4e74d6a9e1f55a62efa7b3c",
+        "chargeId": "cmor39mno0060nxqkzz1kr7p3",
+        "movementId": "cmor39mno0064nxqkqo2lc8h7",
+        "endToEndId": "E18236120202605041112s08efgh4321",
+        "refundEndToEndId": "D31841474202605041113XyAb3M8jJYc",
+        "amountCents": "10000",
+        "occurredAt": "2026-05-04T11:13:18.954Z",
+        "refundAmountCents": "2500"
+      }
     }
     ```
 
@@ -306,31 +335,37 @@ Em todos os exemplos os headers são os da seção anterior; o tipo sempre vem d
 
     ```json
     {
-      "tag": null,
-      "txid": "1c4a7e9f2b8d4e3a9c5f1b6d2e7a3c8f",
-      "chargeId": "cmor3aqrs0070nxqkb1d2ef34",
-      "movementId": "cmor3aqrs0074nxqkv4w2l5m8",
-      "endToEndId": "E18236120202605041115z08ijkl9876",
-      "refundEndToEndId": "D00416968202605041116KkLm4N9pPMd",
-      "amountCents": "10000",
-      "occurredAt": "2026-05-04T11:16:42.103Z",
-      "refundAmountCents": "10000"
+      "event": "pix.charge.refunded",
+      "data": {
+        "tag": null,
+        "txid": "1c4a7e9f2b8d4e3a9c5f1b6d2e7a3c8f",
+        "chargeId": "cmor3aqrs0070nxqkb1d2ef34",
+        "movementId": "cmor3aqrs0074nxqkv4w2l5m8",
+        "endToEndId": "E18236120202605041115z08ijkl9876",
+        "refundEndToEndId": "D00416968202605041116KkLm4N9pPMd",
+        "amountCents": "10000",
+        "occurredAt": "2026-05-04T11:16:42.103Z",
+        "refundAmountCents": "10000"
+      }
     }
     ```
 
-    Múltiplos refunds parciais disparam um webhook cada; quando o valor acumulado cobre **`amountCents`**, o status da cobrança evolui para **`REFUNDED`**. **`tag`** repete o `tag` opcional enviado no **`POST /v1/charges`** — útil para correlacionar com o id interno do seu pedido.
+    Múltiplos refunds parciais disparam um webhook cada; quando o valor acumulado cobre **`amountCents`** em **`data`**, o status da cobrança evolui para **`REFUNDED`**. **`tag`** em **`data`** repete o `tag` opcional enviado no **`POST /v1/charges`**.
   </Accordion>
 
   <Accordion title="pix.charge.expired">
-    **`webhook-event-type`**: `pix.charge.expired`
+    **`event`** / **`webhook-event-type`**: `pix.charge.expired`
 
     ```json
     {
-      "tag": null,
-      "txid": "7c2bb88ca5b842369562de14254c4f2c",
-      "chargeId": "cmor2yuob002qnxqksoxtm6sl",
-      "occurredAt": "2026-05-04T11:08:00.669Z",
-      "amountCents": "1000"
+      "event": "pix.charge.expired",
+      "data": {
+        "tag": null,
+        "txid": "7c2bb88ca5b842369562de14254c4f2c",
+        "chargeId": "cmor2yuob002qnxqksoxtm6sl",
+        "occurredAt": "2026-05-04T11:08:00.669Z",
+        "amountCents": "1000"
+      }
     }
     ```
   </Accordion>
