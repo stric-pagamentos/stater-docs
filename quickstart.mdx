@@ -7,7 +7,7 @@ Neste guia você vai:
 
 1. Configurar sua API key
 2. Consultar o saldo da sua conta
-3. Resolver uma chave Pix no DICT
+3. Consultar o titular de uma chave Pix
 
 ## 1. Sua API key
 
@@ -68,10 +68,10 @@ Resposta esperada (valores em centavos como string):
   representada como string em centavos.
 </Note>
 
-## 3. Resolva uma chave Pix no DICT
+## 3. Consulte o titular da chave Pix
 
-Antes de enviar um Pix, você normalmente faz um lookup pra confirmar
-o titular da chave e obter o `dictLookupId`.
+Antes de enviar um Pix, é comum usar `POST /v1/dict/lookup` pra confirmar
+o titular e obter um `dictLookupId` opcional para o próximo payout. **`pixKeyType`** deve ser uma destas strings: **`CPF`**, **`CNPJ`**, **`EMAIL`**, **`PHONE`**, **`EVP`** — alinhado ao campo `pixKey`.
 
 <CodeGroup>
 
@@ -137,13 +137,15 @@ Resposta:
 }
 ```
 
-Guarde o `id` — você vai usá-lo como `dictLookupId` no próximo passo.
+Guarde o `id` — você pode usá-lo como `dictLookupId` em **`POST /v1/payouts`**
+junto dos campos obrigatórios `pixKey`, `pixKeyType` e `amountCents`.
 
 ## Próximos passos
 
 <Steps>
   <Step title="Envie seu primeiro Pix">
-    Combine o `dictLookupId` com `POST /v1/payouts`. Veja o
+    Use `pixKey`, `pixKeyType`, `amountCents` e, se aplicável, `dictLookupId`.
+    Veja o
     [fluxo completo](/guides/send-pix).
   </Step>
   <Step title="Crie uma cobrança">

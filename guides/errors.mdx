@@ -47,7 +47,7 @@ Body, query ou parâmetros inválidos. `details` lista os campos com problema.
     "code": "VALIDATION_ERROR",
     "message": "Campos inválidos no request.",
     "details": {
-      "amount": "deve ser uma string numérica em centavos"
+      "amountCents": "deve ser uma string ou número em centavos"
     }
   }
 }
@@ -80,7 +80,7 @@ Operação rejeitada por regra de negócio. Códigos comuns:
 | `INSUFFICIENT_BALANCE`   | Saldo da conta menor que o valor da operação          |
 | `INVALID_STATE`          | Estado do recurso não permite a ação (ex.: cobrança já paga) |
 | `LIMIT_EXCEEDED`         | Limite diário/mensal de pagamento excedido            |
-| `DICT_KEY_NOT_FOUND`     | Chave Pix não existe no DICT                          |
+| `DICT_KEY_NOT_FOUND`     | Chave Pix não existe no diretório (lookup)                     |
 | `BR_CODE_INVALID`        | BR Code expirado ou inválido                          |
 
 ### 429 — `RATE_LIMIT_EXCEEDED`

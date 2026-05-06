@@ -15,7 +15,7 @@ Documentação pública da API Pix da Stric, construída no [Mintlify](https://m
 │   ├── idempotency.mdx           # Idempotency-Key
 │   ├── errors.mdx                # Códigos de erro
 │   ├── rate-limits.mdx           # 429 e backoff
-│   ├── send-pix.mdx              # Fluxo: DICT → Payout
+│   ├── send-pix.mdx              # Fluxo: consulta de chave → payout
 │   ├── receive-pix.mdx           # Cobranças + Inbox
 │   └── webhooks.mdx              # Configuração + handlers
 ├── api-reference/

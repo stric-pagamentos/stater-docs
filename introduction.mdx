@@ -1,11 +1,11 @@
 ---
 title: "Bem-vindo à Stric Platform"
-description: "API Pix completa: cobranças, pagamentos, DICT, QR Code e webhooks em uma única integração."
+description: "API Pix completa: cobranças, pagamentos, consulta de chave Pix, QR Code e webhooks em uma única integração."
 ---
 
 A **Stric Platform** é uma API Pix que cobre o ciclo completo de pagamentos
 instantâneos: envio e recebimento de Pix, criação de cobranças com QR Code,
-consulta de chaves no DICT, gestão de contas, conciliação via extrato e
+consulta de titular pela chave Pix, gestão de contas, conciliação via extrato e
 notificação em tempo real por webhooks.
 
 <CardGroup cols={2}>
@@ -16,7 +16,7 @@ notificação em tempo real por webhooks.
     Os 29 endpoints da API com playground interativo.
   </Card>
   <Card title="Enviar um Pix" icon="paper-plane" href="/guides/send-pix">
-    Fluxo passo a passo: DICT → Payout.
+    Fluxo passo a passo: consulta de chave → payout.
   </Card>
   <Card title="Receber um Pix" icon="qrcode" href="/guides/receive-pix">
     Crie cobranças com QR Code e concilie via webhook.
@@ -51,7 +51,7 @@ A base é **`https://stater.stric.io`**. A API key válida você gera no
 
 ## Próximos passos
 
-- [Quickstart](/quickstart) — saldo + primeiro lookup DICT em poucos minutos
+- [Quickstart](/quickstart) — saldo + consulta do titular da chave em poucos minutos
 - [Autenticação](/guides/authentication) — Bearer, `X-Pix-Account-Id` e keys por conta
 - [Referência da API](/api-reference/introduction) — playground OpenAPI por endpoint
 

@@ -20,9 +20,9 @@ curl -X POST "$STRIC_BASE_URL/v1/charges" \
   -H "Idempotency-Key: charge-pedido-12345" \
   -H "Content-Type: application/json" \
   -d '{
-    "amount": "5000",
-    "description": "Mensalidade janeiro/2026",
-    "expiresInSeconds": 3600
+    "variant": "simple",
+    "amountCents": "5000",
+    "tag": "mensalidade-janeiro-2026"
   }'
 ```
 

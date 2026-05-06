@@ -3,7 +3,7 @@ info:
   title: Stric Platform API
   version: 0.1.0
   description: |
-    REST **Pix**: cobranças (QR Cobrança), envio por chave ou BR Code (**DICT** / decode), Pix recebido (**Inbox**),
+    REST **Pix**: cobranças (QR Cobrança), envio por **chave Pix** (consulta ao titular antes, se quiser) ou **BR Code** (decode), Pix recebido (**Inbox**),
     extrato, saldo e **webhooks** com eventos `pix.*`.
 
     ### Como autenticar
@@ -41,8 +41,9 @@ tags:
     description: Cobranças Pix — criar, listar, consultar e refresh (receber Pix).
   - name: Inbox
     description: Pix recebidos na conta.
-  - name: DICT
-    description: Consulta de chaves Pix (lookup de titular, banco, agência).
+  - name: Consulta de chave Pix
+    description: >-
+      Resolve titular e dados bancários a partir de uma chave Pix (CPF, CNPJ, e-mail, telefone ou EVP). Opcionalmente gere `dictLookupId` para vincular ao payout.
   - name: QR Code
     description: Decodificação de BR Code Pix.
   - name: Payouts
@@ -1914,11 +1915,12 @@ paths:
   /v1/dict/lookup:
     post:
       tags:
-        - DICT
-      summary: Consulta DICT por chave Pix
+        - Consulta de chave Pix
+      summary: Consulta titular e dados da chave Pix
       description: >-
-        Resolve titular, banco, agência e conta de uma chave Pix. O `id` retornado pode ser passado em `POST
-        /v1/payouts` (campo `dictLookupId`) pra associar o lookup ao pagamento.
+        Retorna nome do titular, banco e dados da conta vinculados à chave. O campo `id` da resposta pode ser enviado
+        em `POST /v1/payouts` como `dictLookupId` para ligar esta consulta ao pagamento — no payout continuam obrigatórios
+        `pixKey`, `pixKeyType` e `amountCents`.
       operationId: post_v1_dict_lookup
       security:
         - bearerAuth: []
@@ -2125,12 +2127,14 @@ paths:
         - Payouts
       summary: Envia Pix via chave
       description: |-
-        Cria um pagamento Pix usando uma chave (CPF/CNPJ/email/telefone/EVP). Resultado:
+        Cria um pagamento Pix usando chave (**`pixKey` + `pixKeyType` obrigatórios**) e **`amountCents`**. Você pode
+        incluir `dictLookupId` depois que consultou essa mesma combinação em **`POST /v1/dict/lookup`** — assim o payout
+        fica auditável junto à consulta do titular.
+
+        Resultado:
         - `submitted` (200): aceito pelo Pix; status final virá via webhook ou polling.
         - `rejected` (422): rejeitado; valor não saiu do saldo.
         - `submitted_unknown` (502): resultado indeterminado (timeout); a plataforma resolve por polling.
-
-        Passe `dictLookupId` se você consultou a chave antes — os dados do beneficiário ficam associados ao pagamento.
       operationId: post_v1_payouts
       security:
         - bearerAuth: []

@@ -97,7 +97,8 @@ func CentsToReal(cents string) (string, error) {
     ```json
     POST /v1/charges
     {
-      "amount": "2500",
+      "variant": "simple",
+      "amountCents": "2500",
       "...": "..."
     }
     ```
@@ -107,7 +108,9 @@ func CentsToReal(cents string) (string, error) {
     ```json
     POST /v1/payouts
     {
-      "amount": "10000",
+      "pixKey": "exemplo@stric.io",
+      "pixKeyType": "EMAIL",
+      "amountCents": "10000",
       "...": "..."
     }
     ```
