@@ -32,18 +32,38 @@ https://stater.stric.io
 
 ## Recursos por categoria
 
-| Categoria                       | Endpoints                                       |
-| ------------------------------- | ----------------------------------------------- |
-| **DICT**                        | Lookup de chaves Pix                            |
-| **QR Code**                     | Decodificação de BR Code                        |
-| **Charges**                     | Cobranças Pix (criar, listar, consultar, refresh) |
-| **Payouts**                     | Pagamentos enviados (via chave ou QR)           |
-| **Movements**                   | Extrato, saldo, movimentos                      |
-| **Account**                     | Atalhos para a conta da API key                 |
-| **Pix accounts**                | Tarifas, limites, rate limit por conta          |
-| **Inbox**                       | Pix recebidos                                   |
-| **API keys (per-account)**      | Gerenciamento de keys                           |
-| **Outbound webhooks**           | Endpoints de webhook                            |
+Na referência OpenAPI, os grupos seguem o fluxo natural de integração:
+**conta → saldo → receber → enviar → administrar**.
+
+### Conta & saldo
+
+| Categoria      | Endpoints                                |
+| -------------- | ---------------------------------------- |
+| **Account**    | Atalhos para a conta da API key          |
+| **Movements**  | Saldo, extrato e consulta de movimentos  |
+
+### Receber Pix
+
+| Categoria   | Endpoints                                          |
+| ----------- | -------------------------------------------------- |
+| **Charges** | Cobranças Pix (criar, listar, consultar, refresh)  |
+| **Inbox**   | Pix recebidos                                      |
+
+### Enviar Pix
+
+| Categoria   | Endpoints                                  |
+| ----------- | ------------------------------------------ |
+| **DICT**    | Lookup de chaves Pix                       |
+| **QR Code** | Decodificação de BR Code                   |
+| **Payouts** | Pagamentos enviados (via chave ou QR Code) |
+
+### Administração
+
+| Categoria                  | Endpoints                                 |
+| -------------------------- | ----------------------------------------- |
+| **Pix accounts**           | Tarifas, limites e rate limit por conta   |
+| **API keys (per-account)** | Gerenciamento de chaves de API            |
+| **Outbound webhooks**      | Endpoints de webhook da conta             |
 
 ## Headers especiais
 

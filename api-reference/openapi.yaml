@@ -11,22 +11,22 @@ servers:
   - url: http://localhost:3031
     description: local dev
 tags:
+  - name: Account
+    description: Atalhos para a conta resolvida pela API key — comece por aqui.
+  - name: Movements
+    description: Saldo, extrato e consulta de movimentos.
+  - name: Charges
+    description: Cobranças Pix — criar, listar, consultar e refresh (receber Pix).
+  - name: Inbox
+    description: Pix recebidos na conta.
   - name: DICT
-    description: Consulta de chaves Pix.
+    description: Consulta de chaves Pix (lookup de titular, banco, agência).
   - name: QR Code
     description: Decodificação de BR Code Pix.
-  - name: Charges
-    description: Cobranças Pix (criação, listagem, consulta, refresh).
   - name: Payouts
-    description: Pagamentos Pix enviados (via chave ou QR Code).
-  - name: Movements
-    description: Movimentos da conta — extrato, saldo, consulta por id.
-  - name: Account
-    description: Atalhos para a conta resolvida pela API key.
+    description: Pagamentos Pix enviados via chave ou QR Code.
   - name: Pix accounts
     description: Consulta de contas Pix por id (tarifas, limites, rate limit).
-  - name: Inbox
-    description: Pix recebidos.
   - name: API keys (per-account)
     description: Gerenciamento de chaves de API vinculadas à conta.
   - name: Outbound webhooks (per-account)
