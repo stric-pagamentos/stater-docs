@@ -101,16 +101,16 @@ curl "$STRIC_BASE_URL/v1/payouts/$PAYOUT_ID" \
   longos (ex.: 30s) com [exponential backoff](/guides/rate-limits).
 </Warning>
 
-## Variação: pagar por QR Code
+## Pagar QR Code (decode obrigatório)
 
-Se em vez de chave Pix você tem um BR Code (string do QR), use o fluxo:
+Se em vez de chave Pix você tem um **BR Code** (string copia e cola), o fluxo é sempre **decodificar → pagar**. Não há pagamento por QR sem passar pelo decode.
 
 <Steps>
-  <Step title="Decodifique o BR Code">
-    `POST /v1/qr-code/decode` retorna valor, beneficiário e identificadores.
+  <Step title="1. Decodificar o BR Code">
+    **`POST /v1/qr-code/decode`** — devolve valor, beneficiário, identificadores e um `id` para usar como **`qrCodeDecodeId`** no passo seguinte.
   </Step>
-  <Step title="Inicie a transferência por QR Code">
-    `POST /v1/payouts/qr-code` com o resultado da decodificação.
+  <Step title="2. Pagar o QR Code">
+    **`POST /v1/payouts/qr-code`** — mesmo contrato de liquidação que Pix por chave (webhooks **`pix.payout.*`**). Envie o BR Code, **`amountCents`** e, quando aplicável, **`qrCodeDecodeId`** do passo anterior.
   </Step>
 </Steps>
 

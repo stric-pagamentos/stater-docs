@@ -3,8 +3,9 @@ info:
   title: Stric Platform API
   version: 0.1.0
   description: |
-    REST **Pix**: cobranças (QR Cobrança), envio por **chave Pix** (consulta ao titular antes, se quiser) ou **BR Code** (decode),
-    Pix recebido via **webhook** (`pix.in.received`), extrato, saldo e **webhooks** com eventos `pix.*`.
+    REST **Pix**: cobranças (QR Cobrança), envio por **chave Pix** (consulta ao titular antes, se quiser), **pagar QR Code**
+    (decode do BR Code obrigatório antes do `POST /v1/payouts/qr-code`), Pix recebido via **webhook** (`pix.in.received`),
+    extrato, saldo e **webhooks** com eventos `pix.*`.
 
     ### Como autenticar
 
@@ -48,11 +49,14 @@ tags:
   - name: Consulta de chave Pix
     description: >-
       Resolve titular e dados bancários a partir de uma chave Pix (CPF, CNPJ, e-mail, telefone ou EVP). Opcionalmente gere `dictLookupId` para vincular à transferência Pix.
-  - name: QR Code
-    description: Decodificação de BR Code Pix.
   - name: Transferências Pix
     description: >-
-      Envio de Pix para terceiros por chave ou BR Code — criar (`POST /v1/payouts` e `POST /v1/payouts/qr-code`), listar, consultar e movimento associado.
+      Pix para terceiros por **chave Pix**: criar (`POST /v1/payouts`), listar, consultar por id e movimento associado.
+      Para pagamento via **BR Code** (copia e cola), use o grupo **Pagar QR Code** abaixo.
+  - name: Pagar QR Code
+    description: >-
+      Pagamento a partir de BR Code: **`POST /v1/qr-code/decode`** (obrigatório) e em seguida **`POST /v1/payouts/qr-code`**.
+      Não há fluxo de pagamento por QR sem decodificar antes.
 
   - name: Webhooks
     description: >-
@@ -397,146 +401,6 @@ paths:
       summary: Consulta movimento por id
       description: Retorna o movimento e os lançamentos da sua conta.
       operationId: get_v1_movements_id
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-        - $ref: '#/components/parameters/XPixAccountId'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  movementId:
-                    type: string
-                  movement:
-                    type: object
-                    properties:
-                      type:
-                        type: string
-                        enum:
-                          - CREDIT
-                          - DEBIT
-                          - TRANSFER
-                          - ADJUSTMENT
-                          - REVERSAL
-                      status:
-                        type: string
-                      source:
-                        nullable: true
-                        type: string
-                        enum:
-                          - PIX_IN
-                          - PIX_OUT
-                          - DEFAULT
-                      description:
-                        nullable: true
-                        type: string
-                      externalRef:
-                        nullable: true
-                        type: string
-                      feeAmount:
-                        nullable: true
-                        type: string
-                        pattern: ^-?\d+$
-                        format: int64-string
-                        description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                      reversesMovementId:
-                        nullable: true
-                        type: string
-                      metadata:
-                        type: object
-                        additionalProperties: {}
-                      createdAt:
-                        type: string
-                        format: date-time
-                        pattern: >-
-                          ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                    required:
-                      - type
-                      - status
-                      - source
-                      - description
-                      - externalRef
-                      - feeAmount
-                      - reversesMovementId
-                      - metadata
-                      - createdAt
-                    additionalProperties: {}
-                  entries:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        accountId:
-                          type: string
-                        amount:
-                          type: string
-                          pattern: ^-?\d+$
-                          format: int64-string
-                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                        balanceAfter:
-                          type: string
-                          pattern: ^-?\d+$
-                          format: int64-string
-                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                        kind:
-                          type: string
-                          enum:
-                            - PRIMARY
-                            - FEE
-                        createdAt:
-                          type: string
-                          format: date-time
-                          pattern: >-
-                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                      required:
-                        - id
-                        - accountId
-                        - amount
-                        - balanceAfter
-                        - kind
-                        - createdAt
-                      additionalProperties: {}
-                required:
-                  - movementId
-                  - movement
-                  - entries
-                additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/movements/{id}/full:
-    get:
-      tags:
-        - Movements
-      summary: Consulta movimento (versão completa)
-      description: >-
-        Igual a `GET /v1/movements/:id`, mas inclui todos os lançamentos do movimento (contraparte e tarifas) — útil
-        para auditoria.
-      operationId: get_v1_movements_id_full
       security:
         - bearerAuth: []
       parameters:
@@ -1831,105 +1695,6 @@ paths:
           $ref: '#/components/responses/RateLimitExceeded'
         '500':
           $ref: '#/components/responses/InternalError'
-  /v1/qr-code/decode:
-    post:
-      tags:
-        - QR Code
-      summary: Decodifica BR Code Pix
-      description: >-
-        Faz parse de um BR Code (copy-and-paste) e retorna chave, valor, beneficiário e instituição. O `id` retornado
-        pode ser passado na transferência por QR Code (`POST /v1/payouts/qr-code`, campo `qrCodeDecodeId`).
-      operationId: post_v1_qr_code_decode
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/XPixAccountId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                pixCopyAndPaste:
-                  type: string
-                  minLength: 20
-                  maxLength: 2000
-                paymentDate:
-                  type: string
-                  pattern: ^\d{4}-\d{2}-\d{2}$
-              required:
-                - pixCopyAndPaste
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  pixCopyAndPaste:
-                    type: string
-                  pixKey:
-                    nullable: true
-                    type: string
-                  pixKeyType:
-                    nullable: true
-                    type: string
-                  amountCents:
-                    nullable: true
-                    type: string
-                    pattern: ^-?\d+$
-                    format: int64-string
-                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
-                  isAmountEditable:
-                    type: boolean
-                  receiverName:
-                    nullable: true
-                    type: string
-                  receiverDocument:
-                    nullable: true
-                    type: string
-                  institutionName:
-                    nullable: true
-                    type: string
-                  expiresAt:
-                    nullable: true
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  cached:
-                    type: boolean
-                required:
-                  - id
-                  - pixCopyAndPaste
-                  - pixKey
-                  - pixKeyType
-                  - amountCents
-                  - isAmountEditable
-                  - receiverName
-                  - receiverDocument
-                  - institutionName
-                  - expiresAt
-                  - cached
-                additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /v1/payouts:
     post:
       tags:
@@ -2232,91 +1997,6 @@ paths:
                 required:
                   - payouts
                   - nextCursor
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/payouts/qr-code:
-    post:
-      tags:
-        - Transferências Pix
-      summary: Envia Pix via QR Code
-      description: >-
-        Mesma semântica da transferência por chave (`POST /v1/payouts`), mas usando um BR Code (copy-and-paste). Passe
-        `qrCodeDecodeId` se você decodificou o QR antes.
-      operationId: post_v1_payouts_qr_code
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/XPixAccountId'
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                pixCopyAndPaste:
-                  type: string
-                  minLength: 20
-                  maxLength: 2000
-                amountCents:
-                  anyOf:
-                    - type: string
-                    - type: number
-                description:
-                  type: string
-                  maxLength: 256
-                qrCodeDecodeId:
-                  type: string
-                  minLength: 10
-                  maxLength: 64
-              required:
-                - pixCopyAndPaste
-                - amountCents
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  kind:
-                    type: string
-                    enum:
-                      - submitted
-                      - rejected
-                      - submitted_unknown
-                  payoutId:
-                    type: string
-                  status:
-                    type: string
-                    enum:
-                      - PENDING
-                      - PROCESSING
-                      - SUBMITTED_UNKNOWN
-                      - SUCCEEDED
-                      - FAILED
-                      - CANCELLED
-                      - REFUNDED
-                      - STUCK
-                required:
-                  - kind
-                  - payoutId
-                  - status
-                additionalProperties: {}
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -2636,6 +2316,190 @@ paths:
                   - movementId
                   - movement
                   - entries
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/qr-code/decode:
+    post:
+      tags:
+        - Pagar QR Code
+      summary: 1. Decodifica BR Code Pix
+      description: >-
+        Primeiro passo do fluxo **Pagar QR Code**: interpreta o BR Code (copia e cola) e devolve valor, beneficiário,
+        instituição e um **`id`** — envie esse `id` em **`POST /v1/payouts/qr-code`** como **`qrCodeDecodeId`** para correlacionar com esta decodificação.
+      operationId: post_v1_qr_code_decode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pixCopyAndPaste:
+                  type: string
+                  minLength: 20
+                  maxLength: 2000
+                paymentDate:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}$
+              required:
+                - pixCopyAndPaste
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixCopyAndPaste:
+                    type: string
+                  pixKey:
+                    nullable: true
+                    type: string
+                  pixKeyType:
+                    nullable: true
+                    type: string
+                  amountCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  isAmountEditable:
+                    type: boolean
+                  receiverName:
+                    nullable: true
+                    type: string
+                  receiverDocument:
+                    nullable: true
+                    type: string
+                  institutionName:
+                    nullable: true
+                    type: string
+                  expiresAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  cached:
+                    type: boolean
+                required:
+                  - id
+                  - pixCopyAndPaste
+                  - pixKey
+                  - pixKeyType
+                  - amountCents
+                  - isAmountEditable
+                  - receiverName
+                  - receiverDocument
+                  - institutionName
+                  - expiresAt
+                  - cached
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payouts/qr-code:
+    post:
+      tags:
+        - Pagar QR Code
+      summary: 2. Pagar QR Code
+      description: >-
+        Segundo passo do fluxo **Pagar QR Code**, após **`POST /v1/qr-code/decode`**. Envia o Pix usando o BR Code
+        (copia e cola) e **`amountCents`**. Use **`qrCodeDecodeId`** com o `id` retornado na decodificação — mesma semântica de liquidação que **`POST /v1/payouts`** por chave (webhook `pix.payout.*`, polling em **`GET /v1/payouts/{id}`**).
+      operationId: post_v1_payouts_qr_code
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pixCopyAndPaste:
+                  type: string
+                  minLength: 20
+                  maxLength: 2000
+                amountCents:
+                  anyOf:
+                    - type: string
+                    - type: number
+                description:
+                  type: string
+                  maxLength: 256
+                qrCodeDecodeId:
+                  type: string
+                  minLength: 10
+                  maxLength: 64
+              required:
+                - pixCopyAndPaste
+                - amountCents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - submitted
+                      - rejected
+                      - submitted_unknown
+                  payoutId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - PENDING
+                      - PROCESSING
+                      - SUBMITTED_UNKNOWN
+                      - SUCCEEDED
+                      - FAILED
+                      - CANCELLED
+                      - REFUNDED
+                      - STUCK
+                required:
+                  - kind
+                  - payoutId
+                  - status
                 additionalProperties: {}
         '400':
           $ref: '#/components/responses/ValidationError'

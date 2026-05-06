@@ -1,6 +1,6 @@
 ---
 title: "Visão geral"
-description: "OpenAPI da Stric Platform — 25 operações com playground Mintlify nesta mesma documentação."
+description: "OpenAPI da Stric Platform — 24 operações com playground Mintlify nesta mesma documentação."
 ---
 
 Esta página resume o que você vê no **painel lateral** da aba **Referência da API**: a spec OpenAPI vira grupos de métodos com playground Mintlify (**Try it**) em cada operação.
@@ -35,7 +35,7 @@ https://stater.stric.io
 ## Recursos por categoria
 
 Na referência OpenAPI, os grupos seguem o fluxo natural de integração:
-**conta → saldo → receber → enviar → administrar**.
+**conta → saldo → receber → enviar (Pix por chave, depois pagar QR Code) → administrar**.
 
 ### Conta & saldo
 
@@ -54,11 +54,11 @@ Pix creditados **sem cobrança** (só pela sua chave Pix) não têm grupo própr
 
 ### Enviar Pix
 
-| Categoria   | Endpoints                                  |
-| ----------- | ------------------------------------------ |
-| **Consulta de chave Pix** | Consultar titular e dados antes da transferência (`/v1/dict/lookup`) |
-| **QR Code** | Decodificação de BR Code                   |
-| **Transferências Pix** | Envio por chave ou QR Code (`/v1/payouts` …) |
+| Categoria   | Endpoints |
+| ----------- | --------- |
+| **Consulta de chave Pix** | Titular e dados antes da transferência por chave (`POST /v1/dict/lookup`) |
+| **Transferências Pix** | Pix por **chave**: criar (`POST /v1/payouts`), listar, consultar, movimento |
+| **Pagar QR Code** | Fluxo BR Code: **`POST /v1/qr-code/decode`** → **`POST /v1/payouts/qr-code`** (sem decode não há pagamento) |
 
 ### Administração
 

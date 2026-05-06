@@ -90,11 +90,10 @@ Content-Type: application/json
 Todos os `POST` da API:
 
 - `POST /v1/dict/lookup`
-- `POST /v1/qr-code/decode`
 - `POST /v1/charges`
 - `POST /v1/charges/{id}/refresh`
 - `POST /v1/payouts`
-- `POST /v1/payouts/qr-code`
+- `POST /v1/qr-code/decode` e `POST /v1/payouts/qr-code` (fluxo **Pagar QR Code**)
 - `POST /v1/pix-accounts/{id}/webhooks`
 
 **`GET`** e **`DELETE`** não usam `Idempotency-Key` — por exemplo, **`DELETE /v1/pix-accounts/{id}/webhooks/{wId}`** (remover endpoint de webhook).

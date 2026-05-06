@@ -70,7 +70,7 @@ sem você ter criado cobrança antes:
 1. **Notificação**: cadastre um webhook e assine **`pix.in.received`** — em **`data`**
    vêm valor, `endToEndId`, pagador, etc. Veja exemplos em [Webhooks](/guides/webhooks).
 2. **Auditoria / backup**: use **`GET /v1/statement`** (lista paginada de movimentos)
-   e **`GET /v1/movements/{id}`** / **`GET /v1/movements/{id}/full`** quando você já
+   e **`GET /v1/movements/{id}`** quando você já
    souber o id do movimento. Consulte a referência **Movements** no OpenAPI para filtros
    (`from`, `to`, `type`, `source`, etc.).
 
