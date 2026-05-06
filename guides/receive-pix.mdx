@@ -38,8 +38,8 @@ como [qrcode](https://www.npmjs.com/package/qrcode) (Node) ou
 
 <Tabs>
   <Tab title="Webhook (recomendado)">
-    Configure um endpoint pra eventos de cobrança. Quando alguém pagar,
-    você é notificado em segundos. Veja [Webhooks](/guides/webhooks).
+    Assine **`pix.charge.paid`** no webhook da conta para ser notificado em
+    segundos quando a cobrança for paga — veja o payload em [Webhooks](/guides/webhooks).
   </Tab>
   <Tab title="Refresh manual">
     ```bash
@@ -65,8 +65,9 @@ curl "$STRIC_BASE_URL/v1/charges/$CHARGE_ID" \
 
 ## Caminho B — recebimento direto pela chave Pix
 
-Se alguém te paga sem você ter criado uma cobrança, o Pix aparece na
-**Inbox**:
+Se alguém te paga sem você ter criado uma cobrança, consulte o **`Inbox`**
+pelo **`GET /v1/inbox`**. Para notificação push do mesmo cenário na API da
+Stric use o webhook **`pix.in.received`** ([Webhooks](/guides/webhooks)).
 
 ```bash
 # Lista Pix recebidos

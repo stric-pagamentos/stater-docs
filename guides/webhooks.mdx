@@ -4,8 +4,8 @@ description: "Receba eventos da Stric em tempo real no seu sistema"
 ---
 
 Webhooks são a forma recomendada de saber quando algo muda na sua conta:
-um Pix recebido, um payout liquidado, uma cobrança paga. A Stric envia uma
-requisição HTTP POST para o endpoint que você registrou.
+Pix recebido (`pix.in.*`), ciclo de payout (`pix.payout.*`), cobranças
+(`pix.charge.*`). A Stric envia um **HTTP POST** para cada URL registrada.
 
 ## 1. Registrar um endpoint
 
@@ -16,7 +16,12 @@ curl -X POST "$STRIC_BASE_URL/v1/pix-accounts/$ACCOUNT_ID/webhooks" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://api.minhaempresa.com/webhooks/stric",
-    "events": ["payout.completed", "charge.paid", "inbox.received"],
+    "events": [
+      "pix.in.received",
+      "pix.payout.succeeded",
+      "pix.charge.paid",
+      "pix.charge.expired"
+    ],
     "authToken": "um-segredo-forte-gerado-por-voce"
   }'
 ```
@@ -60,7 +65,7 @@ app.post(
       return res.status(401).end();
     }
 
-    // Persista o evento ANTES de processar
+    // Roteie com req.get("webhook-event-type") antes de processar o body
     saveEvent(req.body);
 
     // Responda 2xx rápido — processamento real fica em fila
@@ -83,10 +88,12 @@ async def stric_webhook(
     request: Request,
     background: BackgroundTasks,
     authorization: str = Header(None),
+    webhook_event_type: str = Header(None, alias="webhook-event-type"),
 ):
     if not authorization or not hmac.compare_digest(authorization, EXPECTED):
         raise HTTPException(status_code=401)
 
+    # Roteie com webhook_event_type antes de processar o payload
     payload = await request.json()
     save_event(payload)              # persistência síncrona
     background.add_task(process, payload)
@@ -94,6 +101,14 @@ async def stric_webhook(
 ```
 
 </CodeGroup>
+
+### Headers enviados em cada entrega
+
+| Header               | Descrição |
+| -------------------- | --------- |
+| `Authorization`      | Quando você definiu `authToken` ao registrar: `Bearer <authToken>` (valide igual ao exemplo acima). |
+| `Content-Type`       | `application/json` |
+| `webhook-event-type` | Identifica o tipo do evento (mesmo valor usado ao assinar — ex.: `pix.in.received`). Use para rotear antes de despachar o body. |
 
 ## 3. Boas práticas no handler
 
@@ -103,8 +118,10 @@ async def stric_webhook(
     responda imediatamente — processe assincronamente em fila.
   </Accordion>
   <Accordion title="Idempotência no seu lado também" icon="rotate">
-    A Stric pode reentregar um evento. Deduplique pelo `eventId` ou pelo
-    identificador de domínio (`endToEndId`, `payoutId`, etc.).
+    A Stric pode reentregar um evento. Deduplique pelo `eventId` (quando
+    vier no envelope) ou por um par estável por domínio — ex.: `endToEndId`,
+    `{ chargeId, endToEndId }`, `{ payoutId, refundEndToEndId }` em refunds com
+    múltiplos parciais.
   </Accordion>
   <Accordion title="Comparação de tokens à prova de timing attack" icon="stopwatch">
     Use `crypto.timingSafeEqual` (Node) ou `hmac.compare_digest` (Python).
@@ -116,19 +133,206 @@ async def stric_webhook(
   </Accordion>
 </AccordionGroup>
 
-## Eventos disponíveis
+## Tipos de evento (`events`)
 
-O corpo do `POST .../webhooks` exige `events` como array de strings (veja o
-schema no OpenAPI). Quais nomes de evento são aceitos para **sua** conta pode
-variar — confira no painel ou nos webhooks já cadastrados (`GET` no mesmo recurso).
+Ao registrar o webhook, cada string deve ser **exatamente** um dos nomes abaixo.
 
-Padrões comuns:
+### Pix recebido (cash-in direto na conta)
 
-| Categoria  | Eventos                                                |
-| ---------- | ------------------------------------------------------ |
-| Cobranças  | `charge.created`, `charge.paid`, `charge.expired`      |
-| Payouts    | `payout.created`, `payout.completed`, `payout.failed`  |
-| Inbox      | `inbox.received`                                       |
+| Evento               | Significado                                      |
+| -------------------- | ----------------------------------------------- |
+| `pix.in.received`    | Pix creditado na conta (sem fluxo de cobrança pré-cadastrado). |
+
+### Payout enviado
+
+| Evento                     | Significado                                                |
+| -------------------------- | ---------------------------------------------------------- |
+| `pix.payout.succeeded`      | Liquidação concluída com sucesso.                          |
+| `pix.payout.failed`         | Falha definitiva (`reason` com código quando aplicável).  |
+| `pix.payout.cancelled`       | Pagamento cancelado (`reason` pode ser `null`).            |
+| `pix.payout.refunded`       | Estorno relacionado ao payout (parcial ou total). Veja exemplos abaixo. |
+
+### Cobrança (charge / QR Cobrança)
+
+| Evento                     | Significado                                                                      |
+| -------------------------- | -------------------------------------------------------------------------------- |
+| `pix.charge.paid`           | Cobrança paga.                                                                   |
+| `pix.charge.expired`       | Cobrança expirou sem pagamento.                                                  |
+| `pix.charge.refunded`       | Estorno relacionado à cobrança (parcial ou total). Veja exemplos abaixo. |
+
+## Exemplos de payload por evento
+
+Em todos os exemplos os headers são os da seção anterior; o tipo sempre vem duplicado no header **`webhook-event-type`** (valor igual ao nome do evento).
+
+<AccordionGroup>
+  <Accordion title="pix.in.received">
+    **`webhook-event-type`**: `pix.in.received`
+
+    ```json
+    {
+      "payerName": "Pedro Ferreira de Souza",
+      "endToEndId": "E18236120202605041049s078600ecc6",
+      "movementId": "cmor2uwya002inxqkoyow2167",
+      "receivedAt": "2026-05-04T10:49:34.558Z",
+      "amountCents": "120",
+      "payerBranch": "1",
+      "paymentDate": "2026-05-04 10:49:33.995783+00:00",
+      "payerAccount": "49773517",
+      "pixAccountId": "cmokguchz0004duqk7pj3f2e4",
+      "coreAccountId": "cmokguchu0003duqkodsv49bx",
+      "payerDocument": "17227372361",
+      "payerInstitution": "18236120"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="pix.payout.succeeded">
+    **`webhook-event-type`**: `pix.payout.succeeded`
+
+    ```json
+    {
+      "payoutId": "cmor2rhuj0025nxqka1bh1ep8",
+      "endToEndId": "E318414742026050410462USJ7TLXDK4",
+      "movementId": "cmor2rhu80022nxqkx2td17op",
+      "occurredAt": "2026-05-04T10:46:57.375Z",
+      "amountCents": "100"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="pix.payout.failed">
+    **`webhook-event-type`**: `pix.payout.failed`
+
+    ```json
+    {
+      "payoutId": "cmor35abc002vnxqkp1q9wzj4",
+      "movementId": "cmor35abc0030nxqk5kf2x8d1",
+      "endToEndId": "E18236120202605041102k08aabb1234",
+      "amountCents": "5000",
+      "occurredAt": "2026-05-04T11:02:14.227Z",
+      "reason": "recipient_not_found"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="pix.payout.cancelled">
+    **`webhook-event-type`**: `pix.payout.cancelled`
+
+    ```json
+    {
+      "payoutId": "cmor36def0031nxqkqr2xahg9",
+      "movementId": "cmor36def0035nxqk7a8tc4e2",
+      "endToEndId": "E18236120202605041105m08c12cd567",
+      "amountCents": "2500",
+      "occurredAt": "2026-05-04T11:05:42.918Z",
+      "reason": null
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="pix.payout.refunded">
+    **`webhook-event-type`**: `pix.payout.refunded`
+
+    **`amountCents`** é o valor original do payout. **`refundAmountCents`** é o valor **deste** estorno individual. Para detectar refund parcial, compare `refundAmountCents < amountCents`. Estornos parciais geram vários webhooks separados — cada um com `eventId` único quando a plataforma o enviar no envelope (referência conceitual: `payout-refunded-{payoutId}-{refundEndToEndId}`).
+
+    Refund **parcial**:
+
+    ```json
+    {
+      "payoutId": "cmor37ghi0040nxqk83df9k1m",
+      "movementId": "cmor37ghi0044nxqkpw5lzny6",
+      "endToEndId": "E31841474202605041107T08DEF12345",
+      "amountCents": "250",
+      "occurredAt": "2026-05-04T11:07:23.488Z",
+      "refundEndToEndId": "D00416968202605041108UpxYi1K5gFV",
+      "refundAmountCents": "100"
+    }
+    ```
+
+    Refund **total** (valor do estorno = valor original):
+
+    ```json
+    {
+      "payoutId": "cmor38jkl0050nxqkk3ce8fr1",
+      "movementId": "cmor38jkl0054nxqkx2td8j6n",
+      "endToEndId": "E18236120202605041109K08FGH67890",
+      "amountCents": "5000",
+      "occurredAt": "2026-05-04T11:09:05.612Z",
+      "refundEndToEndId": "D31841474202605041110ZqRm2L6hHWb",
+      "refundAmountCents": "5000"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="pix.charge.paid">
+    **`webhook-event-type`**: `pix.charge.paid`
+
+    ```json
+    {
+      "tag": null,
+      "txid": "a7b2507c757f4881859d6f72efc4309d",
+      "chargeId": "cmor30g1s002ungqkovmpy3b7",
+      "endToEndId": "E18236120202605041054s07e2c3edef",
+      "movementId": "cmor30wh50036nxqkuzw3fqpv",
+      "occurredAt": "2026-05-04T10:54:13.879Z",
+      "amountCents": "300",
+      "refundEndToEndId": null
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="pix.charge.refunded">
+    **`webhook-event-type`**: `pix.charge.refunded`
+
+    Mesmo padrão dos payouts pagos via refund: **`amountCents`** = valor original da cobrança que foi liquidada; **`refundAmountCents`** = valor deste refund. Para **R$ 100,00** pagos (**`"10000"`** centavos), um refund de **R$ 25,00**:
+
+    ```json
+    {
+      "tag": "pedido-9821",
+      "txid": "8f3b22c1d4e74d6a9e1f55a62efa7b3c",
+      "chargeId": "cmor39mno0060nxqkzz1kr7p3",
+      "movementId": "cmor39mno0064nxqkqo2lc8h7",
+      "endToEndId": "E18236120202605041112s08efgh4321",
+      "refundEndToEndId": "D31841474202605041113XyAb3M8jJYc",
+      "amountCents": "10000",
+      "occurredAt": "2026-05-04T11:13:18.954Z",
+      "refundAmountCents": "2500"
+    }
+    ```
+
+    Refund **total**:
+
+    ```json
+    {
+      "tag": null,
+      "txid": "1c4a7e9f2b8d4e3a9c5f1b6d2e7a3c8f",
+      "chargeId": "cmor3aqrs0070nxqkb1d2ef34",
+      "movementId": "cmor3aqrs0074nxqkv4w2l5m8",
+      "endToEndId": "E18236120202605041115z08ijkl9876",
+      "refundEndToEndId": "D00416968202605041116KkLm4N9pPMd",
+      "amountCents": "10000",
+      "occurredAt": "2026-05-04T11:16:42.103Z",
+      "refundAmountCents": "10000"
+    }
+    ```
+
+    Múltiplos refunds parciais disparam um webhook cada; quando o valor acumulado cobre **`amountCents`**, o status da cobrança evolui para **`REFUNDED`**. **`tag`** repete o `tag` opcional enviado no **`POST /v1/charges`** — útil para correlacionar com o id interno do seu pedido.
+  </Accordion>
+
+  <Accordion title="pix.charge.expired">
+    **`webhook-event-type`**: `pix.charge.expired`
+
+    ```json
+    {
+      "tag": null,
+      "txid": "7c2bb88ca5b842369562de14254c4f2c",
+      "chargeId": "cmor2yuob002qnxqksoxtm6sl",
+      "occurredAt": "2026-05-04T11:08:00.669Z",
+      "amountCents": "1000"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
 
 ## Gerenciar endpoints
 
@@ -152,8 +356,9 @@ Use [ngrok](https://ngrok.com/) ou [Cloudflare Tunnel](https://www.cloudflare.co
 pra expor seu servidor local pra Stric durante o desenvolvimento:
 
 ```bash
-ngrok http 3000
-# https://abcd1234.ngrok.io → http://localhost:3000
+ngrok http <porta-do-seu-servidor>
+# O ngrok imprime uma URL HTTPS pública na saída do terminal — use esse host.
 ```
 
-Registre essa URL como webhook em ambiente de sandbox.
+Registre essa URL HTTPS pública nos webhooks apenas para testes; em produção
+use sempre um endpoint estável sob seu próprio domínio.

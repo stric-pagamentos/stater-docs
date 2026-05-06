@@ -13,7 +13,7 @@ notificação em tempo real por webhooks.
     Faça sua primeira chamada autenticada em menos de 5 minutos.
   </Card>
   <Card title="Referência completa" icon="code" href="/api-reference/introduction">
-    Os 32 endpoints da API com playground interativo.
+    Os 29 endpoints da API com playground interativo.
   </Card>
   <Card title="Enviar um Pix" icon="paper-plane" href="/guides/send-pix">
     Fluxo passo a passo: DICT → Payout.
@@ -44,16 +44,10 @@ notificação em tempo real por webhooks.
   </Accordion>
 </AccordionGroup>
 
-## Ambientes
+## URL da API
 
-A **URL base da API é a mesma** para produção e sandbox; o que muda é o
-**tipo de API key** que você gera no [painel](https://app.stric.io) (produção
-vs sandbox).
-
-| Ambiente   | Base URL                        | Uso |
-| ---------- | -------------------------------- | --- |
-| Produção / Sandbox | `https://stater.stric.io` | Key de produção → operações reais. Key de **sandbox** → testes sem movimentação real. |
-| Desenvolvimento local | `http://localhost:3031` | Só quando você executa o backend Stric na sua máquina (vide `servers` no OpenAPI). |
+A base é **`https://stater.stric.io`**. A API key válida você gera no
+[painel](https://app.stric.io).
 
 ## Próximos passos
 

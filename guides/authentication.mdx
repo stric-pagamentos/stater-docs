@@ -41,16 +41,10 @@ X-Pix-Account-Id: <id-da-conta-pix>
   `X-Pix-Account-Id`, a resposta será `400 VALIDATION_ERROR`.
 </Warning>
 
-## Gerenciamento de keys por conta
+## Criar e revogar keys
 
-Você também pode criar e revogar keys programaticamente, com escopo
-restrito a uma conta específica:
-
-| Método   | Endpoint                                      | O que faz                |
-| -------- | --------------------------------------------- | ------------------------ |
-| `POST`   | `/v1/pix-accounts/{id}/api-keys`              | Cria uma nova key        |
-| `GET`    | `/v1/pix-accounts/{id}/api-keys`              | Lista keys da conta      |
-| `DELETE` | `/v1/pix-accounts/{id}/api-keys/{keyId}`      | Revoga uma key           |
+Emita e revogue chaves pelo [painel da Stric](https://app.stric.io)
+(**Configurações → API keys**). O fluxo é fora dos endpoints públicos desta doc.
 
 ## Boas práticas
 

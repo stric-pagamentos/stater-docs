@@ -31,9 +31,9 @@ Documentação pública da API Pix da Stric, construída no [Mintlify](https://m
 # 1. Instalar o CLI do Mintlify
 npm i -g mint
 
-# 2. Rodar preview local na pasta do projeto
+# 2. Rodar preview na pasta do projeto
 mint dev
-# Abre em http://localhost:3000
+# O comando mostra no terminal a URL de preview da documentação.
 ```
 
 ## Publicação

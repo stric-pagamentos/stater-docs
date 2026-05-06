@@ -2,14 +2,36 @@ openapi: 3.0.3
 info:
   title: Stric Platform API
   version: 0.1.0
-  description: >-
-    API Pix da Stric. Autenticação via Bearer token (API key). Valores monetários são enviados e recebidos como string
-    em centavos.
+  description: |
+    REST **Pix**: cobranças (QR Cobrança), envio por chave ou BR Code (**DICT** / decode), Pix recebido (**Inbox**),
+    extrato, saldo e **webhooks** com eventos `pix.*`.
+
+    ### Como autenticar
+
+    Todas as operações exigem `Authorization: Bearer <api-key>` (Bearer = API key da plataforma).
+
+    ### Payloads monetários
+
+    Quantias sempre como **string em centavos** (ex.: `"1050"` = R$ 10,50).
+
+    ### Escrita segura (`POST`)
+
+    Envie sempre `Idempotency-Key` (8–64 caracteres). Repetição com mesmo método, path e body devolve o mesmo resultado.
+
+    ### Erros
+
+    JSON com `error.code` estável, `error.message` e opcionalmente `error.details`.
+
+    ### Webhooks na documentação
+
+    Tipos aceitos (`pix.in.received`, `pix.charge.paid`, etc.), header `webhook-event-type` e exemplos completos — guia **Webhooks** nos Guias à esquerda.
+  contact:
+    name: Suporte Stric
+    email: suporte@stric.io
 servers:
   - url: https://stater.stric.io
-    description: production
-  - url: http://localhost:3031
-    description: local dev
+    description: API pública (`stater`)
+
 tags:
   - name: Account
     description: Atalhos para a conta resolvida pela API key — comece por aqui.
@@ -26,11 +48,12 @@ tags:
   - name: Payouts
     description: Pagamentos Pix enviados via chave ou QR Code.
   - name: Pix accounts
-    description: Consulta de contas Pix por id (tarifas, limites, rate limit).
-  - name: API keys (per-account)
-    description: Gerenciamento de chaves de API vinculadas à conta.
-  - name: Outbound webhooks (per-account)
-    description: Endpoints de webhook da conta (recebem eventos).
+    description: >-
+      Por `pixAccountId` — tarifas, multiplicador de rate limit e limites (operacional). Exige key com escopo compatível.
+
+  - name: Webhooks
+    description: >-
+      Cadastro de URLs HTTPS que recebem `POST` por evento. Header `webhook-event-type`; payloads em guia Webhooks.
 components:
   securitySchemes:
     bearerAuth:
@@ -3095,297 +3118,16 @@ paths:
           $ref: '#/components/responses/RateLimitExceeded'
         '500':
           $ref: '#/components/responses/InternalError'
-  /v1/pix-accounts/{id}/api-keys:
-    post:
-      tags:
-        - API keys (per-account)
-      summary: Cria API key da conta
-      description: >-
-        Cria uma chave de API vinculada à conta. O valor da chave (`secret`) é mostrado **uma única vez** na resposta —
-        guarde-o com segurança. Subsequentemente só o `prefix` é visível.
-      operationId: post_v1_pix_accounts_id_api_keys
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                  minLength: 1
-                  maxLength: 100
-                scopes:
-                  minItems: 1
-                  type: array
-                  items:
-                    type: string
-                    enum:
-                      - admin
-                      - accounts:read
-                      - accounts:write
-                      - inbox:read
-                      - pix:read
-                      - pix:write
-                      - movements:read
-                      - webhooks:read
-                      - webhooks:write
-                expiresAt:
-                  type: string
-                  format: date-time
-                  pattern: >-
-                    ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-              required:
-                - name
-                - scopes
-      responses:
-        '201':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  name:
-                    type: string
-                  prefix:
-                    type: string
-                  secret:
-                    type: string
-                  scopes:
-                    type: array
-                    items:
-                      type: string
-                      enum:
-                        - admin
-                        - accounts:read
-                        - accounts:write
-                        - inbox:read
-                        - pix:read
-                        - pix:write
-                        - movements:read
-                        - webhooks:read
-                        - webhooks:write
-                  pixAccountId:
-                    nullable: true
-                    type: string
-                  tenantId:
-                    nullable: true
-                    type: string
-                  expiresAt:
-                    nullable: true
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  createdAt:
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                required:
-                  - id
-                  - name
-                  - prefix
-                  - secret
-                  - scopes
-                  - pixAccountId
-                  - tenantId
-                  - expiresAt
-                  - createdAt
-                additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    get:
-      tags:
-        - API keys (per-account)
-      summary: Lista API keys da conta
-      description: Lista keys com `prefix`, `revokedAt`, `lastUsedAt`. O secret não é retornado.
-      operationId: get_v1_pix_accounts_id_api_keys
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    name:
-                      type: string
-                    prefix:
-                      type: string
-                    scopes:
-                      type: array
-                      items:
-                        type: string
-                        enum:
-                          - admin
-                          - accounts:read
-                          - accounts:write
-                          - inbox:read
-                          - pix:read
-                          - pix:write
-                          - movements:read
-                          - webhooks:read
-                          - webhooks:write
-                    pixAccountId:
-                      nullable: true
-                      type: string
-                    tenantId:
-                      nullable: true
-                      type: string
-                    expiresAt:
-                      nullable: true
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                    revokedAt:
-                      nullable: true
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                    lastUsedAt:
-                      nullable: true
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                    createdAt:
-                      type: string
-                      format: date-time
-                      pattern: >-
-                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                  required:
-                    - id
-                    - name
-                    - prefix
-                    - scopes
-                    - pixAccountId
-                    - tenantId
-                    - expiresAt
-                    - revokedAt
-                    - lastUsedAt
-                    - createdAt
-                  additionalProperties: {}
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /v1/pix-accounts/{id}/api-keys/{keyId}:
-    delete:
-      tags:
-        - API keys (per-account)
-      summary: Revoga API key
-      description: Marca a chave como revogada. Requests subsequentes com ela retornam 401.
-      operationId: delete_v1_pix_accounts_id_api_keys_keyId
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-        - name: keyId
-          in: path
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 64
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  id:
-                    type: string
-                  revokedAt:
-                    type: string
-                    format: date-time
-                    pattern: >-
-                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
-                required:
-                  - id
-                  - revokedAt
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/DomainError'
-        '429':
-          $ref: '#/components/responses/RateLimitExceeded'
-        '500':
-          $ref: '#/components/responses/InternalError'
   /v1/pix-accounts/{id}/webhooks:
     post:
       tags:
-        - Outbound webhooks (per-account)
+        - Webhooks
       summary: Registra endpoint de webhook
       description: >-
-        Cadastra uma URL pra receber eventos da conta (Pix recebido, pagamentos, cobranças, etc.). `events` é a lista de
-        tipos a assinar (ex: `pix.cashin`, `pix.payout.succeeded`, `charge.paid`). `authToken` é opcional — quando
-        definido, é enviado no header `Authorization` de cada delivery.
+        Cadastra uma URL para receber eventos da conta. O body `events` lista os tipos assinados — use exatamente um
+        destes nomes: `pix.in.received`, `pix.payout.succeeded`, `pix.payout.failed`, `pix.payout.cancelled`,
+        `pix.payout.refunded`, `pix.charge.paid`, `pix.charge.expired`, `pix.charge.refunded`. Payloads e headers de
+        cada entrega (`webhook-event-type`, etc.) estão documentados no guia Webhooks.
       operationId: post_v1_pix_accounts_id_webhooks
       security:
         - bearerAuth: []
@@ -3412,10 +3154,19 @@ paths:
                   minItems: 1
                   maxItems: 50
                   type: array
+                  description: >-
+                    Strings exatamente iguais às disponíveis na plataforma; use uma ou várias conforme sua necessidade.
                   items:
                     type: string
-                    minLength: 1
-                    maxLength: 100
+                    enum:
+                      - pix.in.received
+                      - pix.payout.succeeded
+                      - pix.payout.failed
+                      - pix.payout.cancelled
+                      - pix.payout.refunded
+                      - pix.charge.paid
+                      - pix.charge.expired
+                      - pix.charge.refunded
                 authToken:
                   anyOf:
                     - type: string
@@ -3485,7 +3236,7 @@ paths:
           $ref: '#/components/responses/InternalError'
     get:
       tags:
-        - Outbound webhooks (per-account)
+        - Webhooks
       summary: Lista endpoints de webhook
       description: Endpoints registrados na conta. O `authToken` aparece mascarado — o valor original só é retornado na criação.
       operationId: get_v1_pix_accounts_id_webhooks
@@ -3556,7 +3307,7 @@ paths:
   /v1/pix-accounts/{id}/webhooks/{wId}:
     get:
       tags:
-        - Outbound webhooks (per-account)
+        - Webhooks
       summary: Consulta endpoint de webhook
       description: Detalhe de um endpoint específico.
       operationId: get_v1_pix_accounts_id_webhooks_wId
@@ -3631,7 +3382,7 @@ paths:
           $ref: '#/components/responses/InternalError'
     delete:
       tags:
-        - Outbound webhooks (per-account)
+        - Webhooks
       summary: Remove endpoint de webhook
       description: Desativa o endpoint. Eventos futuros não são mais entregues nele.
       operationId: delete_v1_pix_accounts_id_webhooks_wId

@@ -1,9 +1,9 @@
 ---
 title: "Visão geral"
-description: "Referência completa dos 32 endpoints da Stric Platform"
+description: "OpenAPI da Stric Platform — 29 operações com playground Mintlify nesta mesma documentação."
 ---
 
-## Convenções
+Esta página resume o que você vê no **painel lateral** da aba **Referência da API**: a spec OpenAPI vira grupos de métodos com playground Mintlify (**Try it**) em cada operação.
 
 <CardGroup cols={2}>
   <Card title="Autenticação" icon="key" href="/guides/authentication">
@@ -17,6 +17,12 @@ description: "Referência completa dos 32 endpoints da Stric Platform"
   </Card>
   <Card title="Erros" icon="triangle-exclamation" href="/guides/errors">
     Códigos estáveis em `error.code`.
+  </Card>
+  <Card title="Webhooks" icon="bolt" href="/guides/webhooks">
+    Eventos `pix.*`, header `webhook-event-type` e payloads de exemplo.
+  </Card>
+  <Card title="Rate limits" icon="gauge-high" href="/guides/rate-limits">
+    Resposta `429`, `Retry-After` e política de retry.
   </Card>
 </CardGroup>
 
@@ -55,11 +61,10 @@ Na referência OpenAPI, os grupos seguem o fluxo natural de integração:
 
 ### Administração
 
-| Categoria                  | Endpoints                                 |
-| -------------------------- | ----------------------------------------- |
-| **Pix accounts**           | Tarifas, limites e rate limit por conta   |
-| **API keys (per-account)** | Gerenciamento de chaves de API            |
-| **Outbound webhooks**      | Endpoints de webhook da conta             |
+| Categoria        | Endpoints                               |
+| ---------------- | --------------------------------------- |
+| **Pix accounts** | Tarifas, limites e rate limit por conta |
+| **Webhooks**     | Cadastro de URLs HTTPS e eventos Pix    |
 
 ## Headers especiais
 
