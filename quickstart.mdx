@@ -1,0 +1,147 @@
+---
+title: "Quickstart"
+description: "Sua primeira chamada à Stric Platform em menos de 5 minutos"
+---
+
+Neste guia você vai:
+
+1. Configurar sua API key
+2. Consultar o saldo da sua conta
+3. Resolver uma chave Pix no DICT
+
+## 1. Sua API key
+
+Acesse o [painel](https://app.stric.io) → **Configurações → API keys** e gere
+uma chave. Use o ambiente **sandbox** para os primeiros testes.
+
+<Warning>
+  A API key dá acesso completo ao escopo configurado. Trate como senha:
+  variáveis de ambiente, secrets manager, nunca em repositórios públicos.
+</Warning>
+
+Salve em `.env`:
+
+```bash
+export STRIC_API_KEY="sua_api_key_aqui"
+export STRIC_BASE_URL="https://stater.stric.io"
+```
+
+## 2. Consulte seu saldo
+
+<CodeGroup>
+
+```bash cURL
+curl "$STRIC_BASE_URL/v1/balance" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+```
+
+```python Python
+import os, requests
+
+r = requests.get(
+    f"{os.environ['STRIC_BASE_URL']}/v1/balance",
+    headers={"Authorization": f"Bearer {os.environ['STRIC_API_KEY']}"},
+)
+print(r.json())
+```
+
+```javascript Node.js
+const r = await fetch(`${process.env.STRIC_BASE_URL}/v1/balance`, {
+  headers: { Authorization: `Bearer ${process.env.STRIC_API_KEY}` },
+});
+console.log(await r.json());
+```
+
+</CodeGroup>
+
+Resposta esperada (valores em centavos como string):
+
+```json
+{
+  "available": "150000",
+  "blocked": "0"
+}
+```
+
+<Note>
+  `"150000"` significa **R$ 1.500,00**. Toda quantia monetária na Stric é
+  representada como string em centavos.
+</Note>
+
+## 3. Resolva uma chave Pix no DICT
+
+Antes de enviar um Pix, você normalmente faz um lookup pra confirmar
+o titular da chave e obter o `dictLookupId`.
+
+<CodeGroup>
+
+```bash cURL
+curl -X POST "$STRIC_BASE_URL/v1/dict/lookup" \
+  -H "Authorization: Bearer $STRIC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pixKey": "exemplo@stric.io",
+    "pixKeyType": "EMAIL"
+  }'
+```
+
+```python Python
+r = requests.post(
+    f"{os.environ['STRIC_BASE_URL']}/v1/dict/lookup",
+    headers={"Authorization": f"Bearer {os.environ['STRIC_API_KEY']}"},
+    json={"pixKey": "exemplo@stric.io", "pixKeyType": "EMAIL"},
+)
+print(r.json())
+```
+
+```javascript Node.js
+const r = await fetch(`${process.env.STRIC_BASE_URL}/v1/dict/lookup`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${process.env.STRIC_API_KEY}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    pixKey: "exemplo@stric.io",
+    pixKeyType: "EMAIL",
+  }),
+});
+console.log(await r.json());
+```
+
+</CodeGroup>
+
+Resposta:
+
+```json
+{
+  "id": "dlk_01HXYZ...",
+  "key": "exemplo@stric.io",
+  "keyType": "EMAIL",
+  "owner": { "name": "Maria Silva", "document": "***.123.456-**" },
+  "bankName": "Banco Exemplo",
+  "ispb": "12345678",
+  "branch": "0001",
+  "account": "1234567",
+  "accountType": "CACC",
+  "cached": false
+}
+```
+
+Guarde o `id` — você vai usá-lo como `dictLookupId` no próximo passo.
+
+## Próximos passos
+
+<Steps>
+  <Step title="Envie seu primeiro Pix">
+    Combine o `dictLookupId` com `POST /v1/payouts`. Veja o
+    [fluxo completo](/guides/send-pix).
+  </Step>
+  <Step title="Crie uma cobrança">
+    Gere QR Code para receber pagamentos. Veja
+    [Receber Pix](/guides/receive-pix).
+  </Step>
+  <Step title="Configure webhooks">
+    Receba eventos em tempo real. Veja [Webhooks](/guides/webhooks).
+  </Step>
+</Steps>

@@ -1,0 +1,77 @@
+# Stric Platform — Documentação
+
+Documentação pública da API Pix da Stric, construída no [Mintlify](https://mintlify.com).
+
+## Estrutura
+
+```
+.
+├── docs.json                     # Configuração: nome, cores, navegação, tabs
+├── introduction.mdx              # Landing dos guias
+├── quickstart.mdx                # Primeiros passos (5 min)
+├── guides/
+│   ├── authentication.mdx        # Bearer + X-Pix-Account-Id
+│   ├── money-format.mdx          # Centavos como string
+│   ├── idempotency.mdx           # Idempotency-Key
+│   ├── errors.mdx                # Códigos de erro
+│   ├── rate-limits.mdx           # 429 e backoff
+│   ├── send-pix.mdx              # Fluxo: DICT → Payout
+│   ├── receive-pix.mdx           # Cobranças + Inbox
+│   └── webhooks.mdx              # Configuração + handlers
+├── api-reference/
+│   ├── introduction.mdx          # Visão geral
+│   └── openapi.yaml              # Spec da Stric Platform 0.1.0
+├── logo/                         # light.svg, dark.svg (adicionar)
+└── images/                       # Diagramas, screenshots (adicionar)
+```
+
+## Setup local
+
+```bash
+# 1. Instalar o CLI do Mintlify
+npm i -g mint
+
+# 2. Rodar preview local na pasta do projeto
+mint dev
+# Abre em http://localhost:3000
+```
+
+## Publicação
+
+1. **Crie uma conta** em [mintlify.com](https://mintlify.com).
+2. **Faça push** deste projeto para um repositório no GitHub.
+3. **Instale o GitHub App** da Mintlify no repo (em
+   `Settings → GitHub App` no painel da Mintlify).
+4. A cada `git push` na branch principal, a doc é redeployada automaticamente.
+
+## O que ainda falta personalizar
+
+- [ ] Adicionar `logo/light.svg` e `logo/dark.svg`
+- [ ] Adicionar `favicon.svg` na raiz
+- [ ] Confirmar URLs no `docs.json`: `app.stric.io`, `status.stric.io`,
+      links de redes sociais, e-mail de suporte
+- [ ] Validar exemplos de payload do quickstart com a API real
+      (chaves, contas, valores)
+- [ ] Confirmar lista exata de eventos de webhook em
+      `guides/webhooks.mdx`
+- [ ] Adicionar diagramas (Mermaid) onde fizer sentido — Mintlify suporta
+      nativamente
+- [ ] Configurar domínio customizado (ex.: `docs.stric.io`)
+
+## Comandos úteis
+
+```bash
+# Validar o OpenAPI
+npx @redocly/cli lint api-reference/openapi.yaml
+
+# Gerar páginas MDX individuais a partir do OpenAPI
+# (caso queira customizar página por página em vez de auto-render)
+npx @mintlify/scraping@latest openapi-file ./api-reference/openapi.yaml \
+  -o ./api-reference/endpoints
+```
+
+## Referências
+
+- [Mintlify docs](https://www.mintlify.com/docs) — documentação oficial
+- [OpenAPI setup no Mintlify](https://www.mintlify.com/docs/api-playground/openapi-setup)
+- [Componentes MDX disponíveis](https://www.mintlify.com/docs/content/components)

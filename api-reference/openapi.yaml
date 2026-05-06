@@ -1,0 +1,3686 @@
+openapi: 3.0.3
+info:
+  title: Stric Platform API
+  version: 0.1.0
+  description: >-
+    API Pix da Stric. Autenticação via Bearer token (API key). Valores monetários são enviados e recebidos como string
+    em centavos.
+servers:
+  - url: https://stater.stric.io
+    description: production
+  - url: http://localhost:3031
+    description: local dev
+tags:
+  - name: DICT
+    description: Consulta de chaves Pix.
+  - name: QR Code
+    description: Decodificação de BR Code Pix.
+  - name: Charges
+    description: Cobranças Pix (criação, listagem, consulta, refresh).
+  - name: Payouts
+    description: Pagamentos Pix enviados (via chave ou QR Code).
+  - name: Movements
+    description: Movimentos da conta — extrato, saldo, consulta por id.
+  - name: Account
+    description: Atalhos para a conta resolvida pela API key.
+  - name: Pix accounts
+    description: Consulta de contas Pix por id (tarifas, limites, rate limit).
+  - name: Inbox
+    description: Pix recebidos.
+  - name: API keys (per-account)
+    description: Gerenciamento de chaves de API vinculadas à conta.
+  - name: Outbound webhooks (per-account)
+    description: Endpoints de webhook da conta (recebem eventos).
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+      description: 'API key da plataforma. Envie no header `Authorization: Bearer <key>`.'
+  parameters:
+    XPixAccountId:
+      name: X-Pix-Account-Id
+      in: header
+      required: false
+      description: >-
+        Id da conta Pix sobre a qual a operação atua. Obrigatório quando sua API key não está vinculada a uma conta
+        específica.
+      schema:
+        type: string
+        minLength: 10
+        maxLength: 40
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Chave única para deduplicar requests. Repetir a mesma chave (mesmo método, path e body) retorna a resposta
+        original — útil para retry seguro. Conflito de body com chave repetida → 409.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 64
+  responses:
+    ValidationError:
+      description: 400 — corpo, query ou parâmetros inválidos. Veja `error.details` pra campos com problema.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: 401 — API key ausente, malformada, expirada ou revogada.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: 403 — você não tem permissão pra essa operação ou pro recurso especificado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: 404 — recurso não encontrado. `error.code` indica qual.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DomainError:
+      description: 422 — operação rejeitada por regra de negócio (saldo insuficiente, estado incompatível, etc.).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimitExceeded:
+      description: 429 — limite de requests excedido. Tente novamente após `Retry-After` segundos.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Segundos até poder tentar de novo.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: 500 — erro inesperado.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: 'Código de erro estável (ex: `VALIDATION_ERROR`, `INSUFFICIENT_BALANCE`).'
+            message:
+              type: string
+              description: Descrição human-readable do erro.
+            details:
+              type: object
+              description: Detalhes contextuais (campos com problema, valores, etc.). Opcional.
+              additionalProperties: true
+paths:
+  /v1/dict/lookup:
+    post:
+      tags:
+        - DICT
+      summary: Consulta DICT por chave Pix
+      description: >-
+        Resolve titular, banco, agência e conta de uma chave Pix. O `id` retornado pode ser passado em `POST
+        /v1/payouts` (campo `dictLookupId`) pra associar o lookup ao pagamento.
+      operationId: post_v1_dict_lookup
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pixKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                pixKeyType:
+                  type: string
+                  enum:
+                    - CPF
+                    - CNPJ
+                    - EMAIL
+                    - PHONE
+                    - EVP
+              required:
+                - pixKey
+                - pixKeyType
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  key:
+                    type: string
+                  keyType:
+                    type: string
+                    enum:
+                      - CPF
+                      - CNPJ
+                      - EMAIL
+                      - PHONE
+                      - EVP
+                  owner:
+                    type: object
+                    properties:
+                      name:
+                        nullable: true
+                        type: string
+                      document:
+                        nullable: true
+                        type: string
+                    required:
+                      - name
+                      - document
+                  bankName:
+                    nullable: true
+                    type: string
+                  ispb:
+                    nullable: true
+                    type: string
+                  branch:
+                    nullable: true
+                    type: string
+                  account:
+                    nullable: true
+                    type: string
+                  accountType:
+                    nullable: true
+                    type: string
+                  cached:
+                    type: boolean
+                required:
+                  - id
+                  - key
+                  - keyType
+                  - owner
+                  - bankName
+                  - ispb
+                  - branch
+                  - account
+                  - accountType
+                  - cached
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/qr-code/decode:
+    post:
+      tags:
+        - QR Code
+      summary: Decodifica BR Code Pix
+      description: >-
+        Faz parse de um BR Code (copy-and-paste) e retorna chave, valor, beneficiário e instituição. O `id` retornado
+        pode ser passado em `POST /v1/payouts/qr-code` (campo `qrCodeDecodeId`).
+      operationId: post_v1_qr_code_decode
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pixCopyAndPaste:
+                  type: string
+                  minLength: 20
+                  maxLength: 2000
+                paymentDate:
+                  type: string
+                  pattern: ^\d{4}-\d{2}-\d{2}$
+              required:
+                - pixCopyAndPaste
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixCopyAndPaste:
+                    type: string
+                  pixKey:
+                    nullable: true
+                    type: string
+                  pixKeyType:
+                    nullable: true
+                    type: string
+                  amountCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  isAmountEditable:
+                    type: boolean
+                  receiverName:
+                    nullable: true
+                    type: string
+                  receiverDocument:
+                    nullable: true
+                    type: string
+                  institutionName:
+                    nullable: true
+                    type: string
+                  expiresAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  cached:
+                    type: boolean
+                required:
+                  - id
+                  - pixCopyAndPaste
+                  - pixKey
+                  - pixKeyType
+                  - amountCents
+                  - isAmountEditable
+                  - receiverName
+                  - receiverDocument
+                  - institutionName
+                  - expiresAt
+                  - cached
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/charges:
+    post:
+      tags:
+        - Charges
+      summary: Cria cobrança Pix
+      description: |-
+        Gera um QR Code Pix com TXID único. Três variantes via discriminator `variant`:
+        - `simple`: QR estático, sem pagador definido.
+        - `debtor`: QR com nome e documento do pagador.
+        - `cobv`: QR com vencimento (`dueDate`) e multa (`fine`/`typeFine`).
+
+        A resposta inclui `txid`, `brCode` e `imageBase64` ou `imageUrl`.
+      operationId: post_v1_charges
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  properties:
+                    variant:
+                      type: string
+                      enum:
+                        - simple
+                    amountCents:
+                      anyOf:
+                        - type: string
+                        - type: number
+                    base64Image:
+                      type: boolean
+                    tag:
+                      type: string
+                      minLength: 1
+                      maxLength: 200
+                    expirationDate:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  required:
+                    - variant
+                    - amountCents
+                - type: object
+                  properties:
+                    variant:
+                      type: string
+                      enum:
+                        - debtor
+                    amountCents:
+                      anyOf:
+                        - type: string
+                        - type: number
+                    base64Image:
+                      type: boolean
+                    tag:
+                      type: string
+                      minLength: 1
+                      maxLength: 200
+                    expirationDate:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    debtorName:
+                      type: string
+                      minLength: 1
+                      maxLength: 25
+                    debtorDocument:
+                      type: string
+                      minLength: 11
+                      maxLength: 20
+                    debtorTypeDocument:
+                      type: string
+                      enum:
+                        - CPF
+                        - CNPJ
+                  required:
+                    - variant
+                    - amountCents
+                    - debtorName
+                    - debtorDocument
+                    - debtorTypeDocument
+                - type: object
+                  properties:
+                    variant:
+                      type: string
+                      enum:
+                        - cobv
+                    amountCents:
+                      anyOf:
+                        - type: string
+                        - type: number
+                    base64Image:
+                      type: boolean
+                    tag:
+                      type: string
+                      minLength: 1
+                      maxLength: 200
+                    expirationDate:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    debtorName:
+                      type: string
+                      minLength: 1
+                      maxLength: 25
+                    debtorDocument:
+                      type: string
+                      minLength: 11
+                      maxLength: 20
+                    debtorTypeDocument:
+                      type: string
+                      enum:
+                        - CPF
+                        - CNPJ
+                    dueDate:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    fineDate:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    typeFine:
+                      type: string
+                      enum:
+                        - NONE
+                        - VALUE
+                        - PERCENT
+                    fine:
+                      type: number
+                      minimum: 0
+                  required:
+                    - variant
+                    - amountCents
+                    - debtorName
+                    - debtorDocument
+                    - debtorTypeDocument
+                    - typeFine
+                    - fine
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixAccountId:
+                    type: string
+                  variant:
+                    type: string
+                    enum:
+                      - simple
+                      - debtor
+                      - cobv
+                  status:
+                    type: string
+                    enum:
+                      - PENDING
+                      - PAID
+                      - EXPIRED
+                      - FAILED
+                      - REFUNDED
+                      - CANCELLED
+                  txid:
+                    type: string
+                  amountCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  brCode:
+                    nullable: true
+                    type: string
+                  imageBase64:
+                    nullable: true
+                    type: string
+                  imageUrl:
+                    nullable: true
+                    type: string
+                  expiresAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  dueDate:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  fineDate:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  debtorName:
+                    nullable: true
+                    type: string
+                  debtorDocument:
+                    nullable: true
+                    type: string
+                  debtorTypeDocument:
+                    nullable: true
+                    type: string
+                  typeFine:
+                    nullable: true
+                    type: string
+                  fine:
+                    nullable: true
+                    type: number
+                  tag:
+                    nullable: true
+                    type: string
+                  endToEndId:
+                    nullable: true
+                    type: string
+                  paidAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  payerName:
+                    nullable: true
+                    type: string
+                  payerDocument:
+                    nullable: true
+                    type: string
+                  payerInstitution:
+                    nullable: true
+                    type: string
+                  refundEndToEndId:
+                    nullable: true
+                    type: string
+                  refundedAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  refundedAmountCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  failureReason:
+                    nullable: true
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - pixAccountId
+                  - variant
+                  - status
+                  - txid
+                  - amountCents
+                  - brCode
+                  - imageBase64
+                  - imageUrl
+                  - expiresAt
+                  - dueDate
+                  - fineDate
+                  - debtorName
+                  - debtorDocument
+                  - debtorTypeDocument
+                  - typeFine
+                  - fine
+                  - tag
+                  - endToEndId
+                  - paidAt
+                  - payerName
+                  - payerDocument
+                  - payerInstitution
+                  - refundEndToEndId
+                  - refundedAt
+                  - refundedAmountCents
+                  - failureReason
+                  - createdAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags:
+        - Charges
+      summary: Lista cobranças
+      description: 'Paginação por cursor. Filtros: `status`, `variant`, intervalo de criação (`from`/`to`). Mais recentes primeiro.'
+      operationId: get_v1_charges
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: variant
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: pixAccountId
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  charges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        pixAccountId:
+                          type: string
+                        variant:
+                          type: string
+                          enum:
+                            - simple
+                            - debtor
+                            - cobv
+                        status:
+                          type: string
+                          enum:
+                            - PENDING
+                            - PAID
+                            - EXPIRED
+                            - FAILED
+                            - REFUNDED
+                            - CANCELLED
+                        txid:
+                          type: string
+                        amountCents:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        brCode:
+                          nullable: true
+                          type: string
+                        imageBase64:
+                          nullable: true
+                          type: string
+                        imageUrl:
+                          nullable: true
+                          type: string
+                        expiresAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        dueDate:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        fineDate:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        debtorName:
+                          nullable: true
+                          type: string
+                        debtorDocument:
+                          nullable: true
+                          type: string
+                        debtorTypeDocument:
+                          nullable: true
+                          type: string
+                        typeFine:
+                          nullable: true
+                          type: string
+                        fine:
+                          nullable: true
+                          type: number
+                        tag:
+                          nullable: true
+                          type: string
+                        endToEndId:
+                          nullable: true
+                          type: string
+                        paidAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        payerName:
+                          nullable: true
+                          type: string
+                        payerDocument:
+                          nullable: true
+                          type: string
+                        payerInstitution:
+                          nullable: true
+                          type: string
+                        refundEndToEndId:
+                          nullable: true
+                          type: string
+                        refundedAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        refundedAmountCents:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        failureReason:
+                          nullable: true
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                      required:
+                        - id
+                        - pixAccountId
+                        - variant
+                        - status
+                        - txid
+                        - amountCents
+                        - brCode
+                        - imageBase64
+                        - imageUrl
+                        - expiresAt
+                        - dueDate
+                        - fineDate
+                        - debtorName
+                        - debtorDocument
+                        - debtorTypeDocument
+                        - typeFine
+                        - fine
+                        - tag
+                        - endToEndId
+                        - paidAt
+                        - payerName
+                        - payerDocument
+                        - payerInstitution
+                        - refundEndToEndId
+                        - refundedAt
+                        - refundedAmountCents
+                        - failureReason
+                        - createdAt
+                      additionalProperties: {}
+                  nextCursor:
+                    nullable: true
+                    type: string
+                required:
+                  - charges
+                  - nextCursor
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/charges/{id}:
+    get:
+      tags:
+        - Charges
+      summary: Consulta cobrança por id
+      description: Retorna a cobrança incluindo dados do pagador (`payerName`, `payerDocument`) e `endToEndId` quando já paga.
+      operationId: get_v1_charges_id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixAccountId:
+                    type: string
+                  variant:
+                    type: string
+                    enum:
+                      - simple
+                      - debtor
+                      - cobv
+                  status:
+                    type: string
+                    enum:
+                      - PENDING
+                      - PAID
+                      - EXPIRED
+                      - FAILED
+                      - REFUNDED
+                      - CANCELLED
+                  txid:
+                    type: string
+                  amountCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  brCode:
+                    nullable: true
+                    type: string
+                  imageBase64:
+                    nullable: true
+                    type: string
+                  imageUrl:
+                    nullable: true
+                    type: string
+                  expiresAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  dueDate:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  fineDate:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  debtorName:
+                    nullable: true
+                    type: string
+                  debtorDocument:
+                    nullable: true
+                    type: string
+                  debtorTypeDocument:
+                    nullable: true
+                    type: string
+                  typeFine:
+                    nullable: true
+                    type: string
+                  fine:
+                    nullable: true
+                    type: number
+                  tag:
+                    nullable: true
+                    type: string
+                  endToEndId:
+                    nullable: true
+                    type: string
+                  paidAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  payerName:
+                    nullable: true
+                    type: string
+                  payerDocument:
+                    nullable: true
+                    type: string
+                  payerInstitution:
+                    nullable: true
+                    type: string
+                  refundEndToEndId:
+                    nullable: true
+                    type: string
+                  refundedAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  refundedAmountCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  failureReason:
+                    nullable: true
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - pixAccountId
+                  - variant
+                  - status
+                  - txid
+                  - amountCents
+                  - brCode
+                  - imageBase64
+                  - imageUrl
+                  - expiresAt
+                  - dueDate
+                  - fineDate
+                  - debtorName
+                  - debtorDocument
+                  - debtorTypeDocument
+                  - typeFine
+                  - fine
+                  - tag
+                  - endToEndId
+                  - paidAt
+                  - payerName
+                  - payerDocument
+                  - payerInstitution
+                  - refundEndToEndId
+                  - refundedAt
+                  - refundedAmountCents
+                  - failureReason
+                  - createdAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/charges/{id}/refresh:
+    post:
+      tags:
+        - Charges
+      summary: Re-consulta status da cobrança
+      description: Força sincronização com o provider Pix (útil quando o webhook de pagamento foi perdido).
+      operationId: post_v1_charges_id_refresh
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - updated
+                      - unchanged
+                      - core_unavailable
+                required:
+                  - kind
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payouts:
+    post:
+      tags:
+        - Payouts
+      summary: Envia Pix via chave
+      description: |-
+        Cria um pagamento Pix usando uma chave (CPF/CNPJ/email/telefone/EVP). Resultado:
+        - `submitted` (200): aceito pelo Pix; status final virá via webhook ou polling.
+        - `rejected` (422): rejeitado; valor não saiu do saldo.
+        - `submitted_unknown` (502): resultado indeterminado (timeout); a plataforma resolve por polling.
+
+        Passe `dictLookupId` se você consultou a chave antes — os dados do beneficiário ficam associados ao pagamento.
+      operationId: post_v1_payouts
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pixKey:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                pixKeyType:
+                  type: string
+                  enum:
+                    - CPF
+                    - CNPJ
+                    - EMAIL
+                    - PHONE
+                    - EVP
+                amountCents:
+                  anyOf:
+                    - type: string
+                    - type: number
+                description:
+                  type: string
+                  maxLength: 256
+                dictLookupId:
+                  type: string
+                  minLength: 10
+                  maxLength: 64
+              required:
+                - pixKey
+                - pixKeyType
+                - amountCents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - submitted
+                      - rejected
+                      - submitted_unknown
+                  payoutId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - PENDING
+                      - PROCESSING
+                      - SUBMITTED_UNKNOWN
+                      - SUCCEEDED
+                      - FAILED
+                      - CANCELLED
+                      - REFUNDED
+                      - STUCK
+                required:
+                  - kind
+                  - payoutId
+                  - status
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags:
+        - Payouts
+      summary: Lista pagamentos enviados
+      description: Paginação por cursor. Filtro por `status`.
+      operationId: get_v1_payouts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - PENDING
+              - PROCESSING
+              - SUBMITTED_UNKNOWN
+              - SUCCEEDED
+              - FAILED
+              - CANCELLED
+              - REFUNDED
+              - STUCK
+        - name: pixAccountId
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payouts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        pixAccountId:
+                          type: string
+                        movementId:
+                          type: string
+                        paymentMethod:
+                          type: string
+                          enum:
+                            - PIX_KEY
+                            - PIX_COPY_AND_PASTE
+                        pixKey:
+                          nullable: true
+                          type: string
+                        pixKeyType:
+                          nullable: true
+                          type: string
+                        qrCode:
+                          nullable: true
+                          type: string
+                        qrCodeDecodeId:
+                          nullable: true
+                          type: string
+                        amountCents:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        description:
+                          nullable: true
+                          type: string
+                        status:
+                          type: string
+                          enum:
+                            - PENDING
+                            - PROCESSING
+                            - SUBMITTED_UNKNOWN
+                            - SUCCEEDED
+                            - FAILED
+                            - CANCELLED
+                            - REFUNDED
+                            - STUCK
+                        endToEndId:
+                          nullable: true
+                          type: string
+                        providerTransactionId:
+                          nullable: true
+                          type: string
+                        providerCodeTransaction:
+                          nullable: true
+                          type: string
+                        refundEndToEndId:
+                          nullable: true
+                          type: string
+                        refundTransactionId:
+                          nullable: true
+                          type: string
+                        refundedAmountCents:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        submittedAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        paidAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        lastPolledAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        nextPollAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        pollAttempts:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        lastError:
+                          nullable: true
+                          type: string
+                        providerResponse:
+                          nullable: true
+                          type: object
+                          additionalProperties: {}
+                        providerStatusCode:
+                          nullable: true
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        resolvedAt:
+                          nullable: true
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                        createdAt:
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                      required:
+                        - id
+                        - pixAccountId
+                        - movementId
+                        - paymentMethod
+                        - pixKey
+                        - pixKeyType
+                        - qrCode
+                        - qrCodeDecodeId
+                        - amountCents
+                        - description
+                        - status
+                        - endToEndId
+                        - providerTransactionId
+                        - providerCodeTransaction
+                        - refundEndToEndId
+                        - refundTransactionId
+                        - refundedAmountCents
+                        - submittedAt
+                        - paidAt
+                        - lastPolledAt
+                        - nextPollAt
+                        - pollAttempts
+                        - lastError
+                        - resolvedAt
+                        - createdAt
+                      additionalProperties: {}
+                  nextCursor:
+                    nullable: true
+                    type: string
+                required:
+                  - payouts
+                  - nextCursor
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payouts/qr-code:
+    post:
+      tags:
+        - Payouts
+      summary: Envia Pix via QR Code
+      description: >-
+        Mesma semântica de `POST /v1/payouts`, mas usando um BR Code (copy-and-paste) em vez de chave. Passe
+        `qrCodeDecodeId` se você decodificou o QR antes.
+      operationId: post_v1_payouts_qr_code
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pixCopyAndPaste:
+                  type: string
+                  minLength: 20
+                  maxLength: 2000
+                amountCents:
+                  anyOf:
+                    - type: string
+                    - type: number
+                description:
+                  type: string
+                  maxLength: 256
+                qrCodeDecodeId:
+                  type: string
+                  minLength: 10
+                  maxLength: 64
+              required:
+                - pixCopyAndPaste
+                - amountCents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - submitted
+                      - rejected
+                      - submitted_unknown
+                  payoutId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - PENDING
+                      - PROCESSING
+                      - SUBMITTED_UNKNOWN
+                      - SUCCEEDED
+                      - FAILED
+                      - CANCELLED
+                      - REFUNDED
+                      - STUCK
+                required:
+                  - kind
+                  - payoutId
+                  - status
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payouts/{id}:
+    get:
+      tags:
+        - Payouts
+      summary: Consulta pagamento por id
+      description: >-
+        Retorna o pagamento com `status`, `endToEndId`, `lastError` (em caso de falha) e — quando rejeitado —
+        `providerResponse` com a resposta crua do provider e `providerStatusCode`.
+      operationId: get_v1_payouts_id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixAccountId:
+                    type: string
+                  movementId:
+                    type: string
+                  paymentMethod:
+                    type: string
+                    enum:
+                      - PIX_KEY
+                      - PIX_COPY_AND_PASTE
+                  pixKey:
+                    nullable: true
+                    type: string
+                  pixKeyType:
+                    nullable: true
+                    type: string
+                  qrCode:
+                    nullable: true
+                    type: string
+                  qrCodeDecodeId:
+                    nullable: true
+                    type: string
+                  amountCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  description:
+                    nullable: true
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - PENDING
+                      - PROCESSING
+                      - SUBMITTED_UNKNOWN
+                      - SUCCEEDED
+                      - FAILED
+                      - CANCELLED
+                      - REFUNDED
+                      - STUCK
+                  endToEndId:
+                    nullable: true
+                    type: string
+                  providerTransactionId:
+                    nullable: true
+                    type: string
+                  providerCodeTransaction:
+                    nullable: true
+                    type: string
+                  refundEndToEndId:
+                    nullable: true
+                    type: string
+                  refundTransactionId:
+                    nullable: true
+                    type: string
+                  refundedAmountCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  submittedAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  paidAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  lastPolledAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  nextPollAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  pollAttempts:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  lastError:
+                    nullable: true
+                    type: string
+                  providerResponse:
+                    nullable: true
+                    type: object
+                    additionalProperties: {}
+                  providerStatusCode:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  resolvedAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - pixAccountId
+                  - movementId
+                  - paymentMethod
+                  - pixKey
+                  - pixKeyType
+                  - qrCode
+                  - qrCodeDecodeId
+                  - amountCents
+                  - description
+                  - status
+                  - endToEndId
+                  - providerTransactionId
+                  - providerCodeTransaction
+                  - refundEndToEndId
+                  - refundTransactionId
+                  - refundedAmountCents
+                  - submittedAt
+                  - paidAt
+                  - lastPolledAt
+                  - nextPollAt
+                  - pollAttempts
+                  - lastError
+                  - resolvedAt
+                  - createdAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payouts/{id}/movement:
+    get:
+      tags:
+        - Payouts
+      summary: Movimento associado ao pagamento
+      description: Atalho que retorna o lançamento de débito gerado por esse pagamento.
+      operationId: get_v1_payouts_id_movement
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movementId:
+                    type: string
+                  movement:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - CREDIT
+                          - DEBIT
+                          - TRANSFER
+                          - ADJUSTMENT
+                          - REVERSAL
+                      status:
+                        type: string
+                      source:
+                        nullable: true
+                        type: string
+                        enum:
+                          - PIX_IN
+                          - PIX_OUT
+                          - DEFAULT
+                      description:
+                        nullable: true
+                        type: string
+                      externalRef:
+                        nullable: true
+                        type: string
+                      feeAmount:
+                        nullable: true
+                        type: string
+                        pattern: ^-?\d+$
+                        format: int64-string
+                        description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                      reversesMovementId:
+                        nullable: true
+                        type: string
+                      metadata:
+                        type: object
+                        additionalProperties: {}
+                      createdAt:
+                        type: string
+                        format: date-time
+                        pattern: >-
+                          ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    required:
+                      - type
+                      - status
+                      - source
+                      - description
+                      - externalRef
+                      - feeAmount
+                      - reversesMovementId
+                      - metadata
+                      - createdAt
+                    additionalProperties: {}
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        accountId:
+                          type: string
+                        amount:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        balanceAfter:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        kind:
+                          type: string
+                          enum:
+                            - PRIMARY
+                            - FEE
+                        createdAt:
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                      required:
+                        - id
+                        - accountId
+                        - amount
+                        - balanceAfter
+                        - kind
+                        - createdAt
+                      additionalProperties: {}
+                required:
+                  - movementId
+                  - movement
+                  - entries
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/movements/{id}:
+    get:
+      tags:
+        - Movements
+      summary: Consulta movimento por id
+      description: Retorna o movimento e os lançamentos da sua conta.
+      operationId: get_v1_movements_id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movementId:
+                    type: string
+                  movement:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - CREDIT
+                          - DEBIT
+                          - TRANSFER
+                          - ADJUSTMENT
+                          - REVERSAL
+                      status:
+                        type: string
+                      source:
+                        nullable: true
+                        type: string
+                        enum:
+                          - PIX_IN
+                          - PIX_OUT
+                          - DEFAULT
+                      description:
+                        nullable: true
+                        type: string
+                      externalRef:
+                        nullable: true
+                        type: string
+                      feeAmount:
+                        nullable: true
+                        type: string
+                        pattern: ^-?\d+$
+                        format: int64-string
+                        description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                      reversesMovementId:
+                        nullable: true
+                        type: string
+                      metadata:
+                        type: object
+                        additionalProperties: {}
+                      createdAt:
+                        type: string
+                        format: date-time
+                        pattern: >-
+                          ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    required:
+                      - type
+                      - status
+                      - source
+                      - description
+                      - externalRef
+                      - feeAmount
+                      - reversesMovementId
+                      - metadata
+                      - createdAt
+                    additionalProperties: {}
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        accountId:
+                          type: string
+                        amount:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        balanceAfter:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        kind:
+                          type: string
+                          enum:
+                            - PRIMARY
+                            - FEE
+                        createdAt:
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                      required:
+                        - id
+                        - accountId
+                        - amount
+                        - balanceAfter
+                        - kind
+                        - createdAt
+                      additionalProperties: {}
+                required:
+                  - movementId
+                  - movement
+                  - entries
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/movements/{id}/full:
+    get:
+      tags:
+        - Movements
+      summary: Consulta movimento (versão completa)
+      description: >-
+        Igual a `GET /v1/movements/:id`, mas inclui todos os lançamentos do movimento (contraparte e tarifas) — útil
+        para auditoria.
+      operationId: get_v1_movements_id_full
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movementId:
+                    type: string
+                  movement:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - CREDIT
+                          - DEBIT
+                          - TRANSFER
+                          - ADJUSTMENT
+                          - REVERSAL
+                      status:
+                        type: string
+                      source:
+                        nullable: true
+                        type: string
+                        enum:
+                          - PIX_IN
+                          - PIX_OUT
+                          - DEFAULT
+                      description:
+                        nullable: true
+                        type: string
+                      externalRef:
+                        nullable: true
+                        type: string
+                      feeAmount:
+                        nullable: true
+                        type: string
+                        pattern: ^-?\d+$
+                        format: int64-string
+                        description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                      reversesMovementId:
+                        nullable: true
+                        type: string
+                      metadata:
+                        type: object
+                        additionalProperties: {}
+                      createdAt:
+                        type: string
+                        format: date-time
+                        pattern: >-
+                          ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    required:
+                      - type
+                      - status
+                      - source
+                      - description
+                      - externalRef
+                      - feeAmount
+                      - reversesMovementId
+                      - metadata
+                      - createdAt
+                    additionalProperties: {}
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        accountId:
+                          type: string
+                        amount:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        balanceAfter:
+                          type: string
+                          pattern: ^-?\d+$
+                          format: int64-string
+                          description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                        kind:
+                          type: string
+                          enum:
+                            - PRIMARY
+                            - FEE
+                        createdAt:
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                      required:
+                        - id
+                        - accountId
+                        - amount
+                        - balanceAfter
+                        - kind
+                        - createdAt
+                      additionalProperties: {}
+                required:
+                  - movementId
+                  - movement
+                  - entries
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/statement:
+    get:
+      tags:
+        - Movements
+      summary: Extrato da conta
+      description: 'Lista paginada de movimentos. Filtros: `from`/`to`, `type`, `source`.'
+      operationId: get_v1_statement
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  movements:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        movementId:
+                          type: string
+                        movement:
+                          type: object
+                          properties:
+                            type:
+                              type: string
+                              enum:
+                                - CREDIT
+                                - DEBIT
+                                - TRANSFER
+                                - ADJUSTMENT
+                                - REVERSAL
+                            status:
+                              type: string
+                            source:
+                              nullable: true
+                              type: string
+                              enum:
+                                - PIX_IN
+                                - PIX_OUT
+                                - DEFAULT
+                            description:
+                              nullable: true
+                              type: string
+                            externalRef:
+                              nullable: true
+                              type: string
+                            feeAmount:
+                              nullable: true
+                              type: string
+                              pattern: ^-?\d+$
+                              format: int64-string
+                              description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                            reversesMovementId:
+                              nullable: true
+                              type: string
+                            metadata:
+                              type: object
+                              additionalProperties: {}
+                            createdAt:
+                              type: string
+                              format: date-time
+                              pattern: >-
+                                ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                          required:
+                            - type
+                            - status
+                            - source
+                            - description
+                            - externalRef
+                            - feeAmount
+                            - reversesMovementId
+                            - metadata
+                            - createdAt
+                          additionalProperties: {}
+                        entries:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              accountId:
+                                type: string
+                              amount:
+                                type: string
+                                pattern: ^-?\d+$
+                                format: int64-string
+                                description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                              balanceAfter:
+                                type: string
+                                pattern: ^-?\d+$
+                                format: int64-string
+                                description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                              kind:
+                                type: string
+                                enum:
+                                  - PRIMARY
+                                  - FEE
+                              createdAt:
+                                type: string
+                                format: date-time
+                                pattern: >-
+                                  ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                            required:
+                              - id
+                              - accountId
+                              - amount
+                              - balanceAfter
+                              - kind
+                              - createdAt
+                            additionalProperties: {}
+                      required:
+                        - movementId
+                        - movement
+                        - entries
+                      additionalProperties: {}
+                  nextCursor:
+                    nullable: true
+                    type: string
+                required:
+                  - movements
+                  - nextCursor
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/statement/summary:
+    get:
+      tags:
+        - Movements
+      summary: Resumo do extrato
+      description: Totais agregados (créditos, débitos, contagens, saldo líquido) sobre o mesmo intervalo do extrato.
+      operationId: get_v1_statement_summary
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: ^\d{4}-\d{2}-\d{2}$
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: source
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalCredits:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  totalDebits:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  countCredits:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  countDebits:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  netCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                required:
+                  - totalCredits
+                  - totalDebits
+                  - countCredits
+                  - countDebits
+                  - netCents
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/balance:
+    get:
+      tags:
+        - Movements
+      summary: Saldo da conta
+      description: Saldo atual em centavos (string).
+      operationId: get_v1_balance
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  balance:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                required:
+                  - balance
+                additionalProperties: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/account:
+    get:
+      tags:
+        - Account
+      summary: Dados da sua conta
+      description: Retorna a conta resolvida pela API key (ou pelo header `X-Pix-Account-Id`).
+      operationId: get_v1_account
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  tenantId:
+                    type: string
+                  coreAccountId:
+                    type: string
+                  branchIdentifier:
+                    type: string
+                  accountNumber:
+                    type: string
+                  label:
+                    nullable: true
+                    type: string
+                  enabled:
+                    type: boolean
+                  pixInFeeCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  pixInFeeBps:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  pixOutFeeCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  pixOutFeeBps:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - tenantId
+                  - coreAccountId
+                  - branchIdentifier
+                  - accountNumber
+                  - label
+                  - enabled
+                  - pixInFeeCents
+                  - pixInFeeBps
+                  - pixOutFeeCents
+                  - pixOutFeeBps
+                  - createdAt
+                  - updatedAt
+                additionalProperties: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/account/pix-keys:
+    get:
+      tags:
+        - Account
+      summary: Suas chaves Pix
+      description: Lista as chaves Pix cadastradas na conta.
+      operationId: get_v1_account_pix_keys
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pixKeys:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        pixKey:
+                          type: string
+                        pixKeyType:
+                          type: string
+                          enum:
+                            - CPF
+                            - CNPJ
+                            - EMAIL
+                            - PHONE
+                            - EVP
+                        createdAt:
+                          type: string
+                          format: date-time
+                          pattern: >-
+                            ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                      required:
+                        - id
+                        - pixKey
+                        - pixKeyType
+                        - createdAt
+                      additionalProperties: {}
+                required:
+                  - pixKeys
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/account/limits:
+    get:
+      tags:
+        - Account
+      summary: Seus limites de pagamento
+      description: Limites por transação, diário e noturno (centavos como string).
+      operationId: get_v1_account_limits
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XPixAccountId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  perTransactionCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  dailyCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  nightCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                required:
+                  - perTransactionCents
+                  - dailyCents
+                  - nightCents
+                additionalProperties: {}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}:
+    get:
+      tags:
+        - Pix accounts
+      summary: Consulta conta Pix por id
+      description: Mesma resposta de `GET /v1/account`, mas consultando explicitamente por id.
+      operationId: get_v1_pix_accounts_id
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  tenantId:
+                    type: string
+                  coreAccountId:
+                    type: string
+                  branchIdentifier:
+                    type: string
+                  accountNumber:
+                    type: string
+                  label:
+                    nullable: true
+                    type: string
+                  enabled:
+                    type: boolean
+                  pixInFeeCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  pixInFeeBps:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  pixOutFeeCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  pixOutFeeBps:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - tenantId
+                  - coreAccountId
+                  - branchIdentifier
+                  - accountNumber
+                  - label
+                  - enabled
+                  - pixInFeeCents
+                  - pixInFeeBps
+                  - pixOutFeeCents
+                  - pixOutFeeBps
+                  - createdAt
+                  - updatedAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/fees:
+    get:
+      tags:
+        - Pix accounts
+      summary: Tarifas da conta
+      description: >-
+        Tarifas Pix in/out. Cada uma tem um componente fixo (`*FeeCents`) e um componente percentual em basis points
+        (`*FeeBps`, 100 = 1%).
+      operationId: get_v1_pix_accounts_id_fees
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pixInFeeCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  pixInFeeBps:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  pixOutFeeCents:
+                    nullable: true
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  pixOutFeeBps:
+                    nullable: true
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - pixInFeeCents
+                  - pixInFeeBps
+                  - pixOutFeeCents
+                  - pixOutFeeBps
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/limits:
+    get:
+      tags:
+        - Pix accounts
+      summary: Limites da conta
+      description: Mesma resposta de `GET /v1/account/limits`.
+      operationId: get_v1_pix_accounts_id_limits
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  perTransactionCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  dailyCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                  nightCents:
+                    type: string
+                    pattern: ^-?\d+$
+                    format: int64-string
+                    description: BigInt serializado como string decimal (Fastify default + convenção da plataforma).
+                required:
+                  - perTransactionCents
+                  - dailyCents
+                  - nightCents
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/rate-limit:
+    get:
+      tags:
+        - Pix accounts
+      summary: Multiplicador de rate limit
+      description: >-
+        Retorna o `multiplier` aplicado aos limites de requests da conta (1.0 = padrão; 0 = sem limite; 0.01..100 =
+        escala) e os limites efetivos por rota em `effective`.
+      operationId: get_v1_pix_accounts_id_rate_limit
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  multiplier:
+                    nullable: true
+                    type: number
+                  effective:
+                    type: object
+                    additionalProperties: {}
+                required:
+                  - multiplier
+                  - effective
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/inbox:
+    get:
+      tags:
+        - Inbox
+      summary: Lista Pix recebidos
+      description: 'Cada Pix recebido vira uma entrada. Filtros: `status` (`RECEIVED`, `PROCESSED`, `IGNORED`, `FAILED`), `limit`.'
+      operationId: get_v1_inbox
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - RECEIVED
+              - PROCESSED
+              - IGNORED
+              - FAILED
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    pixAccountId:
+                      nullable: true
+                      type: string
+                    endToEndId:
+                      type: string
+                    status:
+                      type: string
+                      enum:
+                        - RECEIVED
+                        - PROCESSED
+                        - IGNORED
+                        - FAILED
+                    webhookType:
+                      nullable: true
+                      type: string
+                    rawPayload: {}
+                    coreMovementId:
+                      nullable: true
+                      type: string
+                    errorDetail:
+                      nullable: true
+                      type: string
+                    attempts:
+                      type: integer
+                      minimum: -9007199254740991
+                      maximum: 9007199254740991
+                    nextRetryAt:
+                      nullable: true
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    receivedAt:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    processedAt:
+                      nullable: true
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  required:
+                    - id
+                    - pixAccountId
+                    - endToEndId
+                    - status
+                    - webhookType
+                    - rawPayload
+                    - coreMovementId
+                    - errorDetail
+                    - attempts
+                    - nextRetryAt
+                    - receivedAt
+                    - processedAt
+                  additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/inbox/{endToEndId}:
+    get:
+      tags:
+        - Inbox
+      summary: Detalhe de Pix recebido
+      description: Retorna a entrada do inbox com o payload completo do Pix recebido.
+      operationId: get_v1_inbox_endToEndId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: endToEndId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 200
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixAccountId:
+                    nullable: true
+                    type: string
+                  endToEndId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - RECEIVED
+                      - PROCESSED
+                      - IGNORED
+                      - FAILED
+                  webhookType:
+                    nullable: true
+                    type: string
+                  rawPayload: {}
+                  coreMovementId:
+                    nullable: true
+                    type: string
+                  errorDetail:
+                    nullable: true
+                    type: string
+                  attempts:
+                    type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                  nextRetryAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  receivedAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  processedAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - pixAccountId
+                  - endToEndId
+                  - status
+                  - webhookType
+                  - rawPayload
+                  - coreMovementId
+                  - errorDetail
+                  - attempts
+                  - nextRetryAt
+                  - receivedAt
+                  - processedAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/api-keys:
+    post:
+      tags:
+        - API keys (per-account)
+      summary: Cria API key da conta
+      description: >-
+        Cria uma chave de API vinculada à conta. O valor da chave (`secret`) é mostrado **uma única vez** na resposta —
+        guarde-o com segurança. Subsequentemente só o `prefix` é visível.
+      operationId: post_v1_pix_accounts_id_api_keys
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                scopes:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - admin
+                      - accounts:read
+                      - accounts:write
+                      - inbox:read
+                      - pix:read
+                      - pix:write
+                      - movements:read
+                      - webhooks:read
+                      - webhooks:write
+                expiresAt:
+                  type: string
+                  format: date-time
+                  pattern: >-
+                    ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+              required:
+                - name
+                - scopes
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  prefix:
+                    type: string
+                  secret:
+                    type: string
+                  scopes:
+                    type: array
+                    items:
+                      type: string
+                      enum:
+                        - admin
+                        - accounts:read
+                        - accounts:write
+                        - inbox:read
+                        - pix:read
+                        - pix:write
+                        - movements:read
+                        - webhooks:read
+                        - webhooks:write
+                  pixAccountId:
+                    nullable: true
+                    type: string
+                  tenantId:
+                    nullable: true
+                    type: string
+                  expiresAt:
+                    nullable: true
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - name
+                  - prefix
+                  - secret
+                  - scopes
+                  - pixAccountId
+                  - tenantId
+                  - expiresAt
+                  - createdAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags:
+        - API keys (per-account)
+      summary: Lista API keys da conta
+      description: Lista keys com `prefix`, `revokedAt`, `lastUsedAt`. O secret não é retornado.
+      operationId: get_v1_pix_accounts_id_api_keys
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    prefix:
+                      type: string
+                    scopes:
+                      type: array
+                      items:
+                        type: string
+                        enum:
+                          - admin
+                          - accounts:read
+                          - accounts:write
+                          - inbox:read
+                          - pix:read
+                          - pix:write
+                          - movements:read
+                          - webhooks:read
+                          - webhooks:write
+                    pixAccountId:
+                      nullable: true
+                      type: string
+                    tenantId:
+                      nullable: true
+                      type: string
+                    expiresAt:
+                      nullable: true
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    revokedAt:
+                      nullable: true
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    lastUsedAt:
+                      nullable: true
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                    createdAt:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  required:
+                    - id
+                    - name
+                    - prefix
+                    - scopes
+                    - pixAccountId
+                    - tenantId
+                    - expiresAt
+                    - revokedAt
+                    - lastUsedAt
+                    - createdAt
+                  additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/api-keys/{keyId}:
+    delete:
+      tags:
+        - API keys (per-account)
+      summary: Revoga API key
+      description: Marca a chave como revogada. Requests subsequentes com ela retornam 401.
+      operationId: delete_v1_pix_accounts_id_api_keys_keyId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  revokedAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - revokedAt
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/webhooks:
+    post:
+      tags:
+        - Outbound webhooks (per-account)
+      summary: Registra endpoint de webhook
+      description: >-
+        Cadastra uma URL pra receber eventos da conta (Pix recebido, pagamentos, cobranças, etc.). `events` é a lista de
+        tipos a assinar (ex: `pix.cashin`, `pix.payout.succeeded`, `charge.paid`). `authToken` é opcional — quando
+        definido, é enviado no header `Authorization` de cada delivery.
+      operationId: post_v1_pix_accounts_id_webhooks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  minLength: 8
+                  maxLength: 2048
+                events:
+                  minItems: 1
+                  maxItems: 50
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                    maxLength: 100
+                authToken:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                      maxLength: 500
+                    - type: string
+                      nullable: true
+                      enum:
+                        - null
+              required:
+                - url
+                - events
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixAccountId:
+                    nullable: true
+                    type: string
+                  url:
+                    type: string
+                  events:
+                    type: array
+                    items:
+                      type: string
+                  enabled:
+                    type: boolean
+                  authTokenPreview:
+                    nullable: true
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  authToken:
+                    nullable: true
+                    type: string
+                required:
+                  - id
+                  - pixAccountId
+                  - url
+                  - events
+                  - enabled
+                  - authTokenPreview
+                  - createdAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags:
+        - Outbound webhooks (per-account)
+      summary: Lista endpoints de webhook
+      description: Endpoints registrados na conta. O `authToken` aparece mascarado — o valor original só é retornado na criação.
+      operationId: get_v1_pix_accounts_id_webhooks
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    pixAccountId:
+                      nullable: true
+                      type: string
+                    url:
+                      type: string
+                    events:
+                      type: array
+                      items:
+                        type: string
+                    enabled:
+                      type: boolean
+                    authTokenPreview:
+                      nullable: true
+                      type: string
+                    createdAt:
+                      type: string
+                      format: date-time
+                      pattern: >-
+                        ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                  required:
+                    - id
+                    - pixAccountId
+                    - url
+                    - events
+                    - enabled
+                    - authTokenPreview
+                    - createdAt
+                  additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/pix-accounts/{id}/webhooks/{wId}:
+    get:
+      tags:
+        - Outbound webhooks (per-account)
+      summary: Consulta endpoint de webhook
+      description: Detalhe de um endpoint específico.
+      operationId: get_v1_pix_accounts_id_webhooks_wId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - name: wId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  pixAccountId:
+                    nullable: true
+                    type: string
+                  url:
+                    type: string
+                  events:
+                    type: array
+                    items:
+                      type: string
+                  enabled:
+                    type: boolean
+                  authTokenPreview:
+                    nullable: true
+                    type: string
+                  createdAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - pixAccountId
+                  - url
+                  - events
+                  - enabled
+                  - authTokenPreview
+                  - createdAt
+                additionalProperties: {}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags:
+        - Outbound webhooks (per-account)
+      summary: Remove endpoint de webhook
+      description: Desativa o endpoint. Eventos futuros não são mais entregues nele.
+      operationId: delete_v1_pix_accounts_id_webhooks_wId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+        - name: wId
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  deletedAt:
+                    type: string
+                    format: date-time
+                    pattern: >-
+                      ^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$
+                required:
+                  - id
+                  - deletedAt
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/DomainError'
+        '429':
+          $ref: '#/components/responses/RateLimitExceeded'
+        '500':
+          $ref: '#/components/responses/InternalError'

@@ -1,0 +1,105 @@
+---
+title: "Receber um Pix"
+description: "Crie cobranças com QR Code e concilie pagamentos recebidos"
+---
+
+Receber um Pix pela Stric envolve dois caminhos:
+
+- **Cobrança ativa** (com QR Code): você cria uma cobrança, exibe o QR ao
+  pagador, e recebe um webhook quando o Pix é liquidado.
+- **Recebimento direto** (chave Pix da conta): qualquer Pix enviado pra sua
+  chave aparece no `Inbox` — útil para depósitos sem cobrança prévia.
+
+## Caminho A — cobrança com QR Code
+
+### 1. Criar a cobrança
+
+```bash
+curl -X POST "$STRIC_BASE_URL/v1/charges" \
+  -H "Authorization: Bearer $STRIC_API_KEY" \
+  -H "Idempotency-Key: charge-pedido-12345" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "amount": "5000",
+    "description": "Mensalidade janeiro/2026",
+    "expiresInSeconds": 3600
+  }'
+```
+
+A resposta traz o BR Code (string para QR) e a URL de pagamento.
+
+### 2. Exibir o QR para o pagador
+
+Renderize a string do BR Code como QR Code visual no seu front-end. Bibliotecas
+como [qrcode](https://www.npmjs.com/package/qrcode) (Node) ou
+[qrcode](https://pypi.org/project/qrcode/) (Python) fazem o trabalho.
+
+### 3. Receber confirmação
+
+<Tabs>
+  <Tab title="Webhook (recomendado)">
+    Configure um endpoint pra eventos de cobrança. Quando alguém pagar,
+    você é notificado em segundos. Veja [Webhooks](/guides/webhooks).
+  </Tab>
+  <Tab title="Refresh manual">
+    ```bash
+    curl -X POST "$STRIC_BASE_URL/v1/charges/$CHARGE_ID/refresh" \
+      -H "Authorization: Bearer $STRIC_API_KEY" \
+      -H "Idempotency-Key: $(uuidgen)"
+    ```
+    Útil para diagnóstico, não para conciliação contínua.
+  </Tab>
+</Tabs>
+
+### 4. Listar e auditar
+
+```bash
+# Cobranças com filtros
+curl "$STRIC_BASE_URL/v1/charges?status=PAID&limit=50" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+
+# Detalhe de uma cobrança específica
+curl "$STRIC_BASE_URL/v1/charges/$CHARGE_ID" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+```
+
+## Caminho B — recebimento direto pela chave Pix
+
+Se alguém te paga sem você ter criado uma cobrança, o Pix aparece na
+**Inbox**:
+
+```bash
+# Lista Pix recebidos
+curl "$STRIC_BASE_URL/v1/inbox?limit=50" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+
+# Detalhe pelo endToEndId
+curl "$STRIC_BASE_URL/v1/inbox/E12345678202601061200ABC" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+```
+
+<Note>
+  O `endToEndId` é o identificador único do Pix definido pelo BCB.
+  Sempre use ele para conciliação, não datas ou valores.
+</Note>
+
+## Boas práticas de conciliação
+
+<AccordionGroup>
+  <Accordion title="Use webhooks como fonte de verdade" icon="bolt">
+    Webhooks são entregues em segundos após o evento. Polling é o backup,
+    não o fluxo principal.
+  </Accordion>
+  <Accordion title="Persista os eventos antes de processar" icon="database">
+    Salve o evento bruto no seu banco antes de aplicar a lógica. Se algo
+    falhar, você pode reprocessar sem perder dados.
+  </Accordion>
+  <Accordion title="Trate eventos duplicados" icon="rotate">
+    O webhook pode chegar mais de uma vez. Use o `eventId` ou `endToEndId`
+    pra deduplicar no seu lado.
+  </Accordion>
+  <Accordion title="Reconcilie diariamente" icon="calendar">
+    Mesmo com webhooks confiáveis, rode uma reconciliação diária listando
+    `Inbox` + `Charges` e batendo com seu banco. Detecta gaps cedo.
+  </Accordion>
+</AccordionGroup>

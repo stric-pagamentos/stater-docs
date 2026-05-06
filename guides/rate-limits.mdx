@@ -1,0 +1,78 @@
+---
+title: "Rate limits"
+description: "Como a Stric aplica limites de requisição e como tratá-los"
+---
+
+A Stric aplica rate limit por API key e por conta. Quando excedido, você
+recebe `429 RATE_LIMIT_EXCEEDED` com o header `Retry-After`.
+
+## Como descobrir seus limites
+
+Cada conta tem um multiplicador de rate limit. Consulte:
+
+```bash
+curl "$STRIC_BASE_URL/v1/pix-accounts/{id}/rate-limit" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+```
+
+## Estratégia recomendada: exponential backoff
+
+Quando receber `429`:
+
+1. Leia o header `Retry-After` (em segundos).
+2. Aguarde esse tempo antes de tentar novamente.
+3. Em retries subsequentes, dobre o tempo de espera (com jitter).
+4. Limite o número total de retries (ex.: 5).
+
+<CodeGroup>
+
+```javascript Node.js
+async function withBackoff(fn, maxRetries = 5) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err.code !== "RATE_LIMIT_EXCEEDED" || attempt === maxRetries) {
+        throw err;
+      }
+      const base = err.retryAfter ?? Math.pow(2, attempt);
+      const jitter = Math.random() * 0.5;
+      await new Promise((r) => setTimeout(r, (base + jitter) * 1000));
+    }
+  }
+}
+```
+
+```python Python
+import time, random
+
+def with_backoff(fn, max_retries=5):
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except RateLimitError as e:
+            if attempt == max_retries:
+                raise
+            base = e.retry_after or (2 ** attempt)
+            jitter = random.random() * 0.5
+            time.sleep(base + jitter)
+```
+
+</CodeGroup>
+
+## Boas práticas
+
+<AccordionGroup>
+  <Accordion title="Não bata na API em loop apertado" icon="gauge-high">
+    Para conciliar movimentações, prefira **webhooks** ao invés de polling.
+    Veja [Webhooks](/guides/webhooks).
+  </Accordion>
+  <Accordion title="Use cache para dados estáveis" icon="layer-group">
+    Resultados de DICT são cacheáveis por algumas horas (você recebe `cached: true`
+    quando o resultado vem do cache). Tarifas e limites mudam raramente.
+  </Accordion>
+  <Accordion title="Pagine listagens com cuidado" icon="list">
+    Use os parâmetros de paginação dos endpoints de listagem (`limit`, `cursor`)
+    em vez de varrer tudo de uma vez.
+  </Accordion>
+</AccordionGroup>

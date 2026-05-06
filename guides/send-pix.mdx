@@ -1,0 +1,124 @@
+---
+title: "Enviar um Pix"
+description: "Fluxo completo: do lookup da chave ao pagamento confirmado"
+---
+
+Enviar um Pix pela Stric envolve geralmente três passos:
+
+<Steps>
+  <Step title="Resolver a chave no DICT">
+    Confirma o titular e devolve um `dictLookupId`.
+  </Step>
+  <Step title="Criar o payout">
+    Usa o `dictLookupId` + valor para iniciar o pagamento.
+  </Step>
+  <Step title="Confirmar a liquidação">
+    Por webhook (recomendado) ou consultando o payout.
+  </Step>
+</Steps>
+
+## Passo 1 — DICT lookup
+
+```bash
+curl -X POST "$STRIC_BASE_URL/v1/dict/lookup" \
+  -H "Authorization: Bearer $STRIC_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "pixKey": "11999999999",
+    "pixKeyType": "PHONE"
+  }'
+```
+
+Resposta:
+
+```json
+{
+  "id": "dlk_01HXYZABC",
+  "key": "11999999999",
+  "keyType": "PHONE",
+  "owner": { "name": "Maria Silva", "document": "***.123.456-**" },
+  "bankName": "Banco Exemplo",
+  "ispb": "12345678",
+  "branch": "0001",
+  "account": "1234567",
+  "accountType": "CACC",
+  "cached": false
+}
+```
+
+<Tip>
+  **Sempre mostre o `owner.name` ao usuário** antes de confirmar o
+  pagamento. É um requisito regulatório de Pix e protege contra fraude.
+</Tip>
+
+## Passo 2 — Criar o payout
+
+Com o `dictLookupId` em mãos, envie o pagamento:
+
+```bash
+curl -X POST "$STRIC_BASE_URL/v1/payouts" \
+  -H "Authorization: Bearer $STRIC_API_KEY" \
+  -H "Idempotency-Key: payout-pedido-12345" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dictLookupId": "dlk_01HXYZABC",
+    "amount": "10000",
+    "description": "Pagamento pedido #12345"
+  }'
+```
+
+`"10000"` = **R$ 100,00**. Veja [Formato monetário](/guides/money-format).
+
+A resposta inicial geralmente vem com status `PENDING` ou `PROCESSING`.
+A liquidação é assíncrona.
+
+## Passo 3 — Confirmar a liquidação
+
+### Opção A: webhook (recomendado)
+
+Configure um endpoint que recebe eventos de payout. Você é notificado
+assim que o status muda. Veja [Webhooks](/guides/webhooks).
+
+### Opção B: polling no payout
+
+```bash
+curl "$STRIC_BASE_URL/v1/payouts/$PAYOUT_ID" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+```
+
+<Warning>
+  Polling em loop apertado vai disparar `429`. Use o webhook ou intervalos
+  longos (ex.: 30s) com [exponential backoff](/guides/rate-limits).
+</Warning>
+
+## Variação: pagar por QR Code
+
+Se em vez de chave Pix você tem um BR Code (string do QR), use o fluxo:
+
+<Steps>
+  <Step title="Decodifique o BR Code">
+    `POST /v1/qr-code/decode` retorna valor, beneficiário e identificadores.
+  </Step>
+  <Step title="Crie o payout via QR Code">
+    `POST /v1/payouts/qr-code` com o resultado da decodificação.
+  </Step>
+</Steps>
+
+## Tratando erros comuns
+
+| Cenário                                | Como tratar                                          |
+| -------------------------------------- | ---------------------------------------------------- |
+| `DICT_KEY_NOT_FOUND` (404)             | Chave não existe — peça ao usuário pra verificar     |
+| `INSUFFICIENT_BALANCE` (422)           | Bloqueie a operação e avise o usuário                |
+| `LIMIT_EXCEEDED` (422)                 | Limite diário/mensal — guie o usuário a aumentá-lo   |
+| Timeout na criação do payout           | Reenvie com a mesma `Idempotency-Key` — sem duplicar |
+
+## Reconciliação
+
+Para um processo robusto:
+
+1. **Persista** seu `Idempotency-Key` antes de chamar `POST /v1/payouts`.
+2. **Receba o webhook** de mudança de status.
+3. **Confirme** consultando `GET /v1/payouts/{id}/movement` para o
+   movimento financeiro associado.

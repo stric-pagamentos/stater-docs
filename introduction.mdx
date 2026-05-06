@@ -1,0 +1,52 @@
+---
+title: "Bem-vindo à Stric Platform"
+description: "API Pix completa: cobranças, pagamentos, DICT, QR Code e webhooks em uma única integração."
+---
+
+A **Stric Platform** é uma API Pix que cobre o ciclo completo de pagamentos
+instantâneos: envio e recebimento de Pix, criação de cobranças com QR Code,
+consulta de chaves no DICT, gestão de contas, conciliação via extrato e
+notificação em tempo real por webhooks.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Faça sua primeira chamada autenticada em menos de 5 minutos.
+  </Card>
+  <Card title="Referência completa" icon="code" href="/api-reference/introduction">
+    Os 32 endpoints da API com playground interativo.
+  </Card>
+  <Card title="Enviar um Pix" icon="paper-plane" href="/guides/send-pix">
+    Fluxo passo a passo: DICT → Payout.
+  </Card>
+  <Card title="Receber um Pix" icon="qrcode" href="/guides/receive-pix">
+    Crie cobranças com QR Code e concilie via webhook.
+  </Card>
+</CardGroup>
+
+## O que você precisa saber antes
+
+<AccordionGroup>
+  <Accordion title="Autenticação por API key" icon="key">
+    Todas as requisições usam `Authorization: Bearer <sua-key>`. Veja
+    [Autenticação](/guides/authentication).
+  </Accordion>
+  <Accordion title="Valores monetários em centavos (string)" icon="dollar-sign">
+    R$ 10,50 é enviado como `"1050"`. Sempre string, nunca float — evita
+    erros de precisão. Veja [Formato monetário](/guides/money-format).
+  </Accordion>
+  <Accordion title="Idempotência obrigatória nos POSTs" icon="rotate">
+    Toda operação de escrita exige o header `Idempotency-Key`. Repetir a
+    mesma chave retorna a resposta original. Veja [Idempotência](/guides/idempotency).
+  </Accordion>
+  <Accordion title="Multi-conta via header" icon="users">
+    Se sua API key não está amarrada a uma conta específica, envie
+    `X-Pix-Account-Id` indicando sobre qual conta a operação atua.
+  </Accordion>
+</AccordionGroup>
+
+## Ambientes
+
+| Ambiente   | Base URL                        | Uso                                |
+| ---------- | ------------------------------- | ---------------------------------- |
+| Produção   | `https://stater.stric.io`       | Operações reais                    |
+| Local dev  | `http://localhost:3031`         | Desenvolvimento com SDK local      |

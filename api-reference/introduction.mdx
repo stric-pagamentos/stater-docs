@@ -1,0 +1,55 @@
+---
+title: "Visão geral"
+description: "Referência completa dos 32 endpoints da Stric Platform"
+---
+
+Esta seção é gerada automaticamente a partir do nosso arquivo OpenAPI 3.0.
+Cada endpoint tem **playground interativo** — teste com sua API key direto
+da documentação.
+
+## Convenções
+
+<CardGroup cols={2}>
+  <Card title="Autenticação" icon="key" href="/guides/authentication">
+    Bearer token em todas as requisições.
+  </Card>
+  <Card title="Idempotência" icon="rotate" href="/guides/idempotency">
+    `Idempotency-Key` obrigatório nos POSTs.
+  </Card>
+  <Card title="Valores monetários" icon="dollar-sign" href="/guides/money-format">
+    Sempre string em centavos (`"1050"` = R$ 10,50).
+  </Card>
+  <Card title="Erros" icon="triangle-exclamation" href="/guides/errors">
+    Códigos estáveis em `error.code`.
+  </Card>
+</CardGroup>
+
+## URL base
+
+```
+https://stater.stric.io
+```
+
+## Recursos por categoria
+
+| Categoria                       | Endpoints                                       |
+| ------------------------------- | ----------------------------------------------- |
+| **DICT**                        | Lookup de chaves Pix                            |
+| **QR Code**                     | Decodificação de BR Code                        |
+| **Charges**                     | Cobranças Pix (criar, listar, consultar, refresh) |
+| **Payouts**                     | Pagamentos enviados (via chave ou QR)           |
+| **Movements**                   | Extrato, saldo, movimentos                      |
+| **Account**                     | Atalhos para a conta da API key                 |
+| **Pix accounts**                | Tarifas, limites, rate limit por conta          |
+| **Inbox**                       | Pix recebidos                                   |
+| **API keys (per-account)**      | Gerenciamento de keys                           |
+| **Outbound webhooks**           | Endpoints de webhook                            |
+
+## Headers especiais
+
+| Header                | Quando usar                                                     |
+| --------------------- | --------------------------------------------------------------- |
+| `Authorization`       | Sempre. `Bearer <api-key>`                                      |
+| `Idempotency-Key`     | Em todo POST. 8–64 caracteres                                   |
+| `X-Pix-Account-Id`    | Quando a key não está vinculada a uma conta única               |
+| `Content-Type`        | `application/json` em requests com body                         |

@@ -1,0 +1,160 @@
+---
+title: "Erros"
+description: "Estrutura de erro padrão da Stric e como tratá-los"
+---
+
+A Stric usa códigos de status HTTP convencionais e retorna um corpo JSON
+com detalhes estruturados.
+
+## Estrutura de erro
+
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_BALANCE",
+    "message": "Saldo insuficiente para concluir a operação.",
+    "details": {
+      "available": "5000",
+      "requested": "10000"
+    }
+  }
+}
+```
+
+| Campo            | Descrição                                                  |
+| ---------------- | ---------------------------------------------------------- |
+| `error.code`     | Código estável (use em lógica de tratamento de erros)      |
+| `error.message`  | Mensagem human-readable                                    |
+| `error.details`  | Contexto adicional (campos com problema, valores) — opcional |
+
+## Códigos por status
+
+### 400 — `VALIDATION_ERROR`
+
+Body, query ou parâmetros inválidos. `details` lista os campos com problema.
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Campos inválidos no request.",
+    "details": {
+      "amount": "deve ser uma string numérica em centavos"
+    }
+  }
+}
+```
+
+### 401 — `UNAUTHORIZED`
+
+API key ausente, malformada, expirada ou revogada.
+
+### 403 — `FORBIDDEN`
+
+A key não tem permissão para a operação ou para o recurso.
+
+### 404 — `NOT_FOUND`
+
+Recurso inexistente. `error.code` indica qual (`CHARGE_NOT_FOUND`,
+`PAYOUT_NOT_FOUND`, etc.).
+
+### 409 — `IDEMPOTENCY_CONFLICT`
+
+Mesma `Idempotency-Key` usada com body diferente. Gere uma nova key. Ver
+[Idempotência](/guides/idempotency).
+
+### 422 — Erros de domínio
+
+Operação rejeitada por regra de negócio. Códigos comuns:
+
+| Código                   | Quando acontece                                       |
+| ------------------------ | ----------------------------------------------------- |
+| `INSUFFICIENT_BALANCE`   | Saldo da conta menor que o valor da operação          |
+| `INVALID_STATE`          | Estado do recurso não permite a ação (ex.: cobrança já paga) |
+| `LIMIT_EXCEEDED`         | Limite diário/mensal de pagamento excedido            |
+| `DICT_KEY_NOT_FOUND`     | Chave Pix não existe no DICT                          |
+| `BR_CODE_INVALID`        | BR Code expirado ou inválido                          |
+
+### 429 — `RATE_LIMIT_EXCEEDED`
+
+Você excedeu o limite de requisições. A resposta inclui o header
+`Retry-After` em segundos.
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+```
+
+Implemente **exponential backoff** respeitando esse cabeçalho. Ver
+[Rate limits](/guides/rate-limits).
+
+### 500 — `INTERNAL_ERROR`
+
+Erro inesperado do nosso lado. Geralmente seguro para retry com
+exponential backoff.
+
+## Padrão de tratamento
+
+<CodeGroup>
+
+```javascript Node.js
+async function callStric(path, options = {}) {
+  const r = await fetch(`${process.env.STRIC_BASE_URL}${path}`, options);
+
+  if (r.ok) return r.json();
+
+  const body = await r.json().catch(() => ({}));
+  const code = body?.error?.code ?? "UNKNOWN";
+
+  switch (code) {
+    case "INSUFFICIENT_BALANCE":
+      throw new BusinessError("Saldo insuficiente", body.error.details);
+    case "RATE_LIMIT_EXCEEDED":
+      const retryAfter = parseInt(r.headers.get("Retry-After") ?? "5", 10);
+      await sleep(retryAfter * 1000);
+      return callStric(path, options); // retry
+    case "UNAUTHORIZED":
+    case "FORBIDDEN":
+      throw new AuthError(body.error.message);
+    default:
+      throw new ApiError(r.status, code, body.error?.message);
+  }
+}
+```
+
+```python Python
+import time
+import requests
+
+def call_stric(path: str, **kwargs):
+    r = requests.request(
+        kwargs.pop("method", "GET"),
+        f"{BASE_URL}{path}",
+        **kwargs,
+    )
+    if r.ok:
+        return r.json()
+
+    body = r.json() if r.content else {}
+    code = body.get("error", {}).get("code", "UNKNOWN")
+
+    if code == "RATE_LIMIT_EXCEEDED":
+        retry_after = int(r.headers.get("Retry-After", "5"))
+        time.sleep(retry_after)
+        return call_stric(path, **kwargs)
+
+    if code in ("UNAUTHORIZED", "FORBIDDEN"):
+        raise AuthError(body["error"]["message"])
+
+    if code == "INSUFFICIENT_BALANCE":
+        raise BusinessError("Saldo insuficiente", body["error"].get("details"))
+
+    raise ApiError(r.status_code, code, body.get("error", {}).get("message"))
+```
+
+</CodeGroup>
+
+<Tip>
+  Sempre logue `error.code` (não só a mensagem). Códigos são estáveis;
+  mensagens podem mudar e estão em português.
+</Tip>

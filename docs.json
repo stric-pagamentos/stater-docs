@@ -1,0 +1,91 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Stric Platform",
+  "description": "API Pix da Stric — documentação para desenvolvedores",
+  "colors": {
+    "primary": "#0F766E",
+    "light": "#14B8A6",
+    "dark": "#0F766E"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guias",
+        "groups": [
+          {
+            "group": "Começando",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Conceitos essenciais",
+            "pages": [
+              "guides/authentication",
+              "guides/money-format",
+              "guides/idempotency",
+              "guides/errors",
+              "guides/rate-limits"
+            ]
+          },
+          {
+            "group": "Fluxos comuns",
+            "pages": [
+              "guides/send-pix",
+              "guides/receive-pix",
+              "guides/webhooks"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Referência da API",
+        "groups": [
+          {
+            "group": "Visão geral",
+            "pages": [
+              "api-reference/introduction"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "openapi": "api-reference/openapi.yaml"
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Status",
+        "href": "https://status.stric.io"
+      },
+      {
+        "label": "Suporte",
+        "href": "mailto:suporte@stric.io"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Painel",
+      "href": "https://app.stric.io"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/stric",
+      "linkedin": "https://linkedin.com/company/stric"
+    }
+  },
+  "seo": {
+    "indexing": "all"
+  }
+}

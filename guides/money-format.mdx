@@ -1,0 +1,131 @@
+---
+title: "Formato monetário"
+description: "Por que a Stric usa centavos como string, e como converter corretamente"
+---
+
+Toda quantia monetária na API Stric é representada como **string em centavos**.
+Não usamos floats nem reais com vírgula.
+
+## Por quê?
+
+Floats causam erros de precisão clássicos em sistemas financeiros:
+
+```javascript
+0.1 + 0.2 === 0.3 // false  →  resultado: 0.30000000000000004
+```
+
+Strings em centavos eliminam o problema: você trabalha com inteiros nos seus
+cálculos e só formata para apresentação ao usuário.
+
+## Tabela de conversão
+
+| Real (BRL)      | Stric (string) | Decimal (cents) |
+| --------------- | -------------- | --------------- |
+| R$ 1,00         | `"100"`        | 100             |
+| R$ 10,50        | `"1050"`       | 1.050           |
+| R$ 1.234,56     | `"123456"`     | 123.456         |
+| R$ 0,01         | `"1"`          | 1               |
+
+## Funções de conversão
+
+<CodeGroup>
+
+```javascript Node.js
+// BRL → centavos (string)
+function realToCents(real) {
+  return Math.round(real * 100).toString();
+}
+realToCents(10.50); // "1050"
+
+// centavos (string) → BRL formatado
+function centsToReal(cents) {
+  const value = parseInt(cents, 10) / 100;
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+centsToReal("1050"); // "R$ 10,50"
+```
+
+```python Python
+from decimal import Decimal
+
+# BRL → centavos (string)
+def real_to_cents(real: str | Decimal) -> str:
+    return str(int(Decimal(str(real)) * 100))
+
+real_to_cents("10.50")  # "1050"
+
+# centavos (string) → BRL formatado
+def cents_to_real(cents: str) -> str:
+    value = Decimal(cents) / 100
+    return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+cents_to_real("1050")  # "R$ 10,50"
+```
+
+```go Go
+package money
+
+import (
+    "fmt"
+    "strconv"
+)
+
+// BRL (float) → centavos (string)
+func RealToCents(real float64) string {
+    return strconv.Itoa(int(real*100 + 0.5))
+}
+
+// centavos (string) → BRL formatado
+func CentsToReal(cents string) (string, error) {
+    n, err := strconv.Atoi(cents)
+    if err != nil {
+        return "", err
+    }
+    return fmt.Sprintf("R$ %d,%02d", n/100, n%100), nil
+}
+```
+
+</CodeGroup>
+
+## Exemplos no contexto da API
+
+<Tabs>
+  <Tab title="Criar cobrança">
+    ```json
+    POST /v1/charges
+    {
+      "amount": "2500",
+      "...": "..."
+    }
+    ```
+    Cria uma cobrança de **R$ 25,00**.
+  </Tab>
+  <Tab title="Enviar pagamento">
+    ```json
+    POST /v1/payouts
+    {
+      "amount": "10000",
+      "...": "..."
+    }
+    ```
+    Envia **R$ 100,00**.
+  </Tab>
+  <Tab title="Resposta de saldo">
+    ```json
+    {
+      "available": "1234567",
+      "blocked": "5000"
+    }
+    ```
+    Saldo disponível: **R$ 12.345,67**. Bloqueado: **R$ 50,00**.
+  </Tab>
+</Tabs>
+
+<Tip>
+  Trabalhe com `BigInt` (JS), `Decimal` (Python), `*big.Int` (Go) ou similares
+  quando lidar com valores grandes. Mesmo que centavos como string já evitem o
+  problema dos floats, valores acima de 2^53 podem estourar `Number` em JS.
+</Tip>

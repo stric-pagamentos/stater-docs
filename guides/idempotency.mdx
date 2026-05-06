@@ -1,0 +1,99 @@
+---
+title: "Idempotência"
+description: "Como usar o header Idempotency-Key para deduplicar requests e fazer retry seguro"
+---
+
+Toda operação de escrita (POST) na Stric exige o header `Idempotency-Key`.
+Isso protege você de cobranças ou pagamentos duplicados em caso de
+falhas de rede, timeouts ou retries automáticos.
+
+## Como funciona
+
+1. Você gera uma chave única no cliente (ex.: UUID v4).
+2. Envia no header `Idempotency-Key` da requisição.
+3. A Stric grava o resultado da primeira requisição com aquela chave.
+4. Se a requisição se repetir (mesmo método, path e body), a Stric retorna a
+   resposta original — não executa de novo.
+5. Se o body for diferente com a mesma chave → `409 IDEMPOTENCY_CONFLICT`.
+
+```http
+POST /v1/payouts HTTP/1.1
+Authorization: Bearer <key>
+Idempotency-Key: 8f3b9c2e-1a4d-4f5a-9b2c-7e8f0a1d2c3b
+Content-Type: application/json
+```
+
+## Cenários típicos
+
+<Tabs>
+  <Tab title="Retry automático">
+    Sua chamada timeoutou. Você não sabe se o servidor processou ou não.
+    Repita com a **mesma `Idempotency-Key`** — se já tiver sido processada,
+    você recebe a resposta original; se não, ela é executada agora.
+  </Tab>
+  <Tab title="Reprocessamento de fila">
+    Sua fila redirige uma mensagem por engano. Como a key é a mesma, a Stric
+    detecta a duplicata e devolve o resultado original sem efeitos colaterais.
+  </Tab>
+  <Tab title="Conflito de body">
+    Você usou a mesma key para dois payouts diferentes. Resposta:
+    `409 IDEMPOTENCY_CONFLICT`. Gere uma nova key.
+  </Tab>
+</Tabs>
+
+## Boas práticas para gerar a chave
+
+<AccordionGroup>
+  <Accordion title="Use UUID v4" icon="dice">
+    A forma mais simples e segura. Tem entropia suficiente para nunca colidir
+    com outra requisição sua.
+
+    ```javascript
+    import { randomUUID } from "crypto";
+    const key = randomUUID(); // "8f3b9c2e-1a4d-4f5a-9b2c-7e8f0a1d2c3b"
+    ```
+  </Accordion>
+  <Accordion title="Derive de um identificador de negócio" icon="link">
+    Se você tem um id estável da sua aplicação (ex.: `pedido_12345`),
+    use-o como base. Útil quando o seu sistema é a fonte de verdade:
+
+    ```
+    Idempotency-Key: payout-pedido_12345-v1
+    ```
+
+    Vantagem: você sabe exatamente qual key usar ao retentar, mesmo após reinício.
+  </Accordion>
+  <Accordion title="Persista a key antes de enviar" icon="database">
+    Em sistemas críticos, salve a key no seu banco **antes** de chamar a Stric.
+    Assim, mesmo que sua aplicação caia entre gerar e enviar, você ainda pode
+    retomar usando a mesma key.
+  </Accordion>
+</AccordionGroup>
+
+## Restrições da chave
+
+| Regra        | Valor             |
+| ------------ | ----------------- |
+| Tamanho mín. | 8 caracteres      |
+| Tamanho máx. | 64 caracteres     |
+| Escopo       | Por API key       |
+| Validade     | Conforme retenção da Stric |
+
+<Warning>
+  A key é validada por `(API key + método + path + body)`. Reutilizar uma
+  key entre endpoints diferentes não causa colisão, mas **gera ambiguidade**.
+  Use uma key nova por requisição lógica.
+</Warning>
+
+## Endpoints que exigem Idempotency-Key
+
+Todos os `POST` da API:
+
+- `POST /v1/dict/lookup`
+- `POST /v1/qr-code/decode`
+- `POST /v1/charges`
+- `POST /v1/charges/{id}/refresh`
+- `POST /v1/payouts`
+- `POST /v1/payouts/qr-code`
+- `POST /v1/pix-accounts/{id}/api-keys`
+- `POST /v1/pix-accounts/{id}/webhooks`

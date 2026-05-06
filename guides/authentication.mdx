@@ -1,0 +1,80 @@
+---
+title: "Autenticação"
+description: "Como autenticar suas requisições à Stric Platform"
+---
+
+A Stric usa **Bearer tokens** (API keys) no header `Authorization`. Toda
+requisição deve carregar uma key válida.
+
+## Header padrão
+
+```http
+Authorization: Bearer <sua-api-key>
+```
+
+## Tipos de API key
+
+A Stric tem dois tipos de key, com escopos diferentes:
+
+<CardGroup cols={2}>
+  <Card title="Key vinculada a uma conta" icon="lock">
+    A conta Pix é resolvida automaticamente pela key. Você não precisa
+    enviar `X-Pix-Account-Id`.
+  </Card>
+  <Card title="Key sem conta vinculada" icon="users">
+    Pode operar sobre múltiplas contas. Obrigatório enviar o header
+    `X-Pix-Account-Id` em cada operação que atue sobre uma conta.
+  </Card>
+</CardGroup>
+
+## O header X-Pix-Account-Id
+
+Quando aplicável, indique a conta Pix sobre a qual a operação atua:
+
+```http
+Authorization: Bearer <sua-api-key>
+X-Pix-Account-Id: <id-da-conta-pix>
+```
+
+<Warning>
+  Se sua key não está vinculada a uma conta e você esquecer o
+  `X-Pix-Account-Id`, a resposta será `400 VALIDATION_ERROR`.
+</Warning>
+
+## Gerenciamento de keys por conta
+
+Você também pode criar e revogar keys programaticamente, com escopo
+restrito a uma conta específica:
+
+| Método   | Endpoint                                      | O que faz                |
+| -------- | --------------------------------------------- | ------------------------ |
+| `POST`   | `/v1/pix-accounts/{id}/api-keys`              | Cria uma nova key        |
+| `GET`    | `/v1/pix-accounts/{id}/api-keys`              | Lista keys da conta      |
+| `DELETE` | `/v1/pix-accounts/{id}/api-keys/{keyId}`      | Revoga uma key           |
+
+## Boas práticas
+
+<AccordionGroup>
+  <Accordion title="Use variáveis de ambiente" icon="shield-check">
+    Nunca commite keys no código. Em produção, use um secrets manager
+    (AWS Secrets Manager, HashiCorp Vault, GCP Secret Manager, etc.).
+  </Accordion>
+  <Accordion title="Rotacione periodicamente" icon="rotate">
+    Recomendamos rotação a cada 90 dias. Crie a nova key, atualize seus
+    serviços, e só depois revogue a antiga.
+  </Accordion>
+  <Accordion title="Use uma key por aplicação" icon="layer-group">
+    Facilita auditoria, revogação granular e identificação de incidentes.
+  </Accordion>
+  <Accordion title="Monitore uso" icon="chart-line">
+    Logue o `request_id` de respostas de erro — agiliza muito o suporte.
+  </Accordion>
+</AccordionGroup>
+
+## Erros de autenticação
+
+| Status | Código              | Causa provável                         |
+| ------ | ------------------- | -------------------------------------- |
+| 401    | `UNAUTHORIZED`      | Key ausente, malformada ou revogada    |
+| 403    | `FORBIDDEN`         | Key sem permissão para a operação      |
+| 400    | `VALIDATION_ERROR`  | `X-Pix-Account-Id` faltando quando obrigatório |

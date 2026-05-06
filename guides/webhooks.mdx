@@ -1,0 +1,151 @@
+---
+title: "Webhooks"
+description: "Receba eventos da Stric em tempo real no seu sistema"
+---
+
+Webhooks são a forma recomendada de saber quando algo muda na sua conta:
+um Pix recebido, um payout liquidado, uma cobrança paga. A Stric envia uma
+requisição HTTP POST para o endpoint que você registrou.
+
+## 1. Registrar um endpoint
+
+```bash
+curl -X POST "$STRIC_BASE_URL/v1/pix-accounts/$ACCOUNT_ID/webhooks" \
+  -H "Authorization: Bearer $STRIC_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://api.minhaempresa.com/webhooks/stric",
+    "events": ["payout.completed", "charge.paid", "inbox.received"],
+    "authToken": "um-segredo-forte-gerado-por-voce"
+  }'
+```
+
+<Warning>
+  O `authToken` só aparece na resposta de criação. Em listagens
+  subsequentes, ele vem mascarado em `authTokenPreview`. Salve-o no
+  momento da criação.
+</Warning>
+
+## 2. Validar a assinatura
+
+A Stric envia o token que você registrou no header `Authorization` da
+requisição de webhook. Compare com o valor que você guardou:
+
+<CodeGroup>
+
+```javascript Node.js (Express)
+import express from "express";
+const app = express();
+
+app.post(
+  "/webhooks/stric",
+  express.json(),
+  (req, res) => {
+    const incoming = req.headers.authorization;
+    const expected = `Bearer ${process.env.STRIC_WEBHOOK_TOKEN}`;
+
+    if (!incoming || !timingSafeEqual(incoming, expected)) {
+      return res.status(401).end();
+    }
+
+    // Persista o evento ANTES de processar
+    saveEvent(req.body);
+
+    // Responda 2xx rápido — processamento real fica em fila
+    res.status(200).end();
+
+    enqueue(req.body);
+  }
+);
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return crypto.timingSafeEqual(ab, bb);
+}
+```
+
+```python Python (FastAPI)
+from fastapi import FastAPI, Header, HTTPException, Request, BackgroundTasks
+import hmac, os
+
+app = FastAPI()
+EXPECTED = f"Bearer {os.environ['STRIC_WEBHOOK_TOKEN']}"
+
+@app.post("/webhooks/stric")
+async def stric_webhook(
+    request: Request,
+    background: BackgroundTasks,
+    authorization: str = Header(None),
+):
+    if not authorization or not hmac.compare_digest(authorization, EXPECTED):
+        raise HTTPException(status_code=401)
+
+    payload = await request.json()
+    save_event(payload)              # persistência síncrona
+    background.add_task(process, payload)
+    return {"ok": True}
+```
+
+</CodeGroup>
+
+## 3. Boas práticas no handler
+
+<AccordionGroup>
+  <Accordion title="Responda 2xx em menos de 5 segundos" icon="bolt">
+    Endpoints lentos podem ser considerados como falha. Persista o evento e
+    responda imediatamente — processe assincronamente em fila.
+  </Accordion>
+  <Accordion title="Idempotência no seu lado também" icon="rotate">
+    A Stric pode reentregar um evento. Deduplique pelo `eventId` ou pelo
+    identificador de domínio (`endToEndId`, `payoutId`, etc.).
+  </Accordion>
+  <Accordion title="Comparação de tokens à prova de timing attack" icon="stopwatch">
+    Use `crypto.timingSafeEqual` (Node) ou `hmac.compare_digest` (Python).
+    Nunca `==`.
+  </Accordion>
+  <Accordion title="Logue o evento bruto" icon="file-lines">
+    Guarde o JSON completo. Se sua lógica mudar, você pode reprocessar
+    eventos passados.
+  </Accordion>
+</AccordionGroup>
+
+## Eventos disponíveis
+
+A lista completa depende da configuração da sua conta. Padrões comuns:
+
+| Categoria  | Eventos                                                |
+| ---------- | ------------------------------------------------------ |
+| Cobranças  | `charge.created`, `charge.paid`, `charge.expired`      |
+| Payouts    | `payout.created`, `payout.completed`, `payout.failed`  |
+| Inbox      | `inbox.received`                                       |
+
+## Gerenciar endpoints
+
+```bash
+# Listar
+curl "$STRIC_BASE_URL/v1/pix-accounts/$ACCOUNT_ID/webhooks" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+
+# Consultar um
+curl "$STRIC_BASE_URL/v1/pix-accounts/$ACCOUNT_ID/webhooks/$WEBHOOK_ID" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+
+# Remover
+curl -X DELETE "$STRIC_BASE_URL/v1/pix-accounts/$ACCOUNT_ID/webhooks/$WEBHOOK_ID" \
+  -H "Authorization: Bearer $STRIC_API_KEY"
+```
+
+## Testando localmente
+
+Use [ngrok](https://ngrok.com/) ou [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/)
+pra expor seu servidor local pra Stric durante o desenvolvimento:
+
+```bash
+ngrok http 3000
+# https://abcd1234.ngrok.io → http://localhost:3000
+```
+
+Registre essa URL como webhook em ambiente de sandbox.
