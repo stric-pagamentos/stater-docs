@@ -1,6 +1,6 @@
-# Stric Platform — Documentação
+# Stater Platform — Documentação
 
-Documentação pública da API Pix da Stric, construída no [Mintlify](https://mintlify.com).
+Documentação pública da API Pix da Stater, construída no [Mintlify](https://mintlify.com).
 
 ## Estrutura
 
@@ -20,7 +20,7 @@ Documentação pública da API Pix da Stric, construída no [Mintlify](https://m
 │   └── webhooks.mdx              # Configuração + handlers
 ├── api-reference/
 │   ├── introduction.mdx          # Visão geral
-│   └── openapi.yaml              # Spec da Stric Platform 0.1.0
+│   └── openapi.yaml              # Spec da Stater Platform 0.1.0
 ├── logo/                         # opcional: assets locais (ou use URL no docs.json)
 └── images/                       # diagramas, screenshots (opcional)
 ```

@@ -1,12 +1,12 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Stric Platform",
-  "description": "API Pix da Stric — documentação para desenvolvedores",
+  "name": "Stater Platform",
+  "description": "API Pix da Stater — documentação para desenvolvedores",
   "colors": {
-    "primary": "#2b1f70",
-    "light": "#2b1f70",
-    "dark": "#584eda"
+    "primary": "#1e6ee8",
+    "light": "#1e6ee8",
+    "dark": "#1e6ee8"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -59,8 +59,8 @@
     ]
   },
   "logo": {
-    "light": "https://stric-bank-api.s3.us-east-1.amazonaws.com/copyo/clients/logos/stricbank/stric-logo.png",
-    "dark": "https://stric-bank-api.s3.us-east-1.amazonaws.com/copyo/clients/logos/stricbank/stric-logo.png"
+    "light": "https://stric-bank-api.s3.us-east-1.amazonaws.com/copyo/clients/logos/staterpay/stater-logo-white.png",
+    "dark": "https://stric-bank-api.s3.us-east-1.amazonaws.com/copyo/clients/logos/staterpay/stater-logo-white.png"
   },
   "navbar": {
     "links": [
@@ -76,7 +76,7 @@
     "primary": {
       "type": "button",
       "label": "Painel",
-      "href": "https://ib.stric.io"
+      "href": "https://ib.staterpay.com.br"
     }
   },
   "seo": {

@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Stric Platform API
+  title: Stater Platform API
   version: 0.1.0
   description: |
     REST **Pix**: cobranças (QR Cobrança), envio por **chave Pix** (consulta ao titular antes, se quiser), **pagar QR Code**
@@ -27,7 +27,7 @@ info:
 
     Tipos aceitos (`pix.in.received`, `pix.charge.paid`, etc.), envelope `{ event, data }`, header `webhook-event-type` e exemplos — guia **Webhooks**.
   contact:
-    name: Suporte Stric
+    name: Suporte Stater
     email: suporte@stric.io
   license:
     name: Proprietary
